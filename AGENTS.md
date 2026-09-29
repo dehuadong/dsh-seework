@@ -1,5 +1,11 @@
 # dsh-seework 开发文档
-
+ 
+> 使用中文简体回复用户的问题，包括GitHub Issues文档产物。
+> 表达简明扼要，用通俗标准语言，给结论用大白话，不要抛技术选择题，严禁黑话与虚浮套话;
+> 新造词必须和用户解释或按照约定的术语与定义;有产品空洞先自己核实代码/文档再上报。
+> 输出直接呈现核心事实与动作，不打无意义流水账。
+> 具体业务任务，多实测少猜测，基于验证而非空想推进任务。
+ 
 本文件是 **dsh-seework 插件工程**（DSH 插件）的代理入口；本目录既是工程根也是本项目的**仓库管理根**，文档归属与标准见 [`docs/AGENTS.md`](docs/AGENTS.md)，跟踪器、triage 标签与领域文档约定见 [`docs/agents/`](docs/agents/)。本文件只记插件细则。
 
 ## 文档位置
@@ -9,13 +15,44 @@
 | 工程说明与使用指南 | [`README.md`](README.md) |
 | 架构与实现**地图**——每处行为的现状与简短的「为什么」 | [`docs/architecture.md`](docs/architecture.md) |
 | 详细设计与取舍——**一个主题一份**（同一主题的后续变更进同一份，标修订与状态；无关主题另开） | [`docs/design/`](docs/design/) |
-| 架构决定——**不可逆、值得留档**的取舍（含被否决的备选） | [`docs/adr/`](docs/adr/) |
-| GUI 端到端核对——**怎么核、断言、成本** | [`docs/gui-verification.md`](docs/gui-verification.md) |
+| 架构决定——**不可逆、值得留档**的取舍（含被否决的备选） | [`docs/adr/`](docs/adr/) | 
 | Agent 变更与决策记录 | [`.agents/notes/`](.agents/notes/README.md)（本工程） |
 | 对外接口契约（本插件消费） | **外部属主**：SeeAI Hub 仓库（`dehuadong/seeaihub`）的 `docs/api/`，不在本目录 |
 
+## 工程工作流
 
+> 文档和仓库治理工作可以绕过该工程工作流，除非它改变了重要的产品、技术、架构或其他工程契约。
 
+### Discuss
+
+使用 Discuss 理解请求、探索备选方案，并消除足够的歧义，以判断下一阶段。
+在以下情况下继续停留在 Discuss：
+
+* 工作仍处于探索阶段
+* 仍在比较重要的备选方案
+* 用户当前只是寻求理解，而不是准备推进实施
+* 目标或选定范围尚不足以形成实施合同
+
+常规细节优先根据上下文和仓库证据自行解决。
+只询问会实质影响工作的缺失信息；这里不要求所有实现细节都已经确定。
+不要仅因为正在讨论产品、技术或架构决策，就创建规划产物。
+模型可以判断讨论已经足够成熟，可以进入后续阶段，但不能仅凭这一判断自行离开 Discuss。
+何时从讨论进入规划或实施，由用户决定。若用户此前的请求已经明确授权推进，则复用该授权。
+当用户已授权推进时：
+
+* 若仍有重要合同决策需要补全或正式固化，则进入 Planning
+* 否则按照 `docs/agents/engineering.md` 中的 Implementation Gate 继续
+
+授权进入 Planning 不等于授权实施。
+
+### 执行授权
+
+当前范围已经具备实施条件但尚未获得执行授权时，需要用户输入“执行实现”。
+“确认”“可以”“同意”等仅表示审批，不构成执行授权。
+执行授权在已确定的工作范围内持续有效，覆盖实施、审查、范围内修正和验证；阶段切换不要求重复授权。
+新增范围或尚未解决的重大决策仍需要用户授权。
+端到端请求在满足相应工作流门禁后，持续推进至验证完成。
+限定阶段的请求，在该阶段及其要求的审查完成后结束。
 
 
 ## 文档与约定
@@ -35,22 +72,7 @@
 - 领域文档（`CONTEXT.md` 与 `docs/adr/`）的读取规则、ADR 冲突处理：[`docs/agents/domain.md`](docs/agents/domain.md)。
 - Agent Note 的记录范围、生命周期与格式：[`.agents/notes/README.md`](.agents/notes/README.md)；只读导航与机械检查用 `node scripts/decisions/list.mjs`、`node scripts/decisions/check.mjs`。
 
-## 边界纪律
-
-- 
-- 
-- **一处行为只写一次「为什么」**：现状与简短理由记在 [`docs/architecture.md`](docs/architecture.md)，长文（取舍、备选、接口、评审结论）记在 [`docs/design/`](docs/design/)，不可逆的决定记在 [`docs/adr/`](docs/adr/)；本文件不复述。行为改了改那一边，别在这里补一遍。
-- **`lib/` 是产物，不要手改**：`pnpm build` 会按源码整份覆盖，手工改动**不会报错、直接消失**。真实发生过一次——有人直接在 `lib/index.js` 里把提示文案的「（或右下角「SeeWork 设置」按钮）」改成「（侧边栏）」（提交 `c45382eb`，只动 lib 没动 src），下一次 `pnpm build` 就把它冲掉了，只能反过来在 `src/agent-tools.ts` 里补回来。改动一律落在 `src/`；怀疑已有手改时，扫一遍"只动了 `lib/` 没动 `src/`"的提交：
-
-  ```powershell
-  foreach ($c in (git log --format=%h -25)) {
-    $files = git show --name-only --format= $c
-    $hasLib = ($files | Where-Object { $_ -like "dsh-seework/lib/*" }).Count -gt 0
-    $hasSrc = ($files | Where-Object { $_ -like "dsh-seework/src/*" }).Count -gt 0
-    if ($hasLib -and -not $hasSrc) { "$c  $((git log -1 --format=%s $c))" }
-  }
-  ```
-
+ 
 ## 验证入口
 
 | 命令 | 覆盖 |
