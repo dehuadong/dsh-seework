@@ -1,0 +1,101 @@
+/**
+ * Local control styles, on the shell's real design tokens.
+ *
+ * Token names matter: the shell defines `--dsw-alias-label-*`, `--dsw-alias-bg-layer-*`,
+ * `--dsw-alias-border-l*` and `--dsw-alias-interactive-bg-*`. Inventing a name
+ * (`--dsw-alias-text-primary`, `--dsw-alias-bg-elevated`) silently falls back, which
+ * is how dark-on-dark controls shipped before. Fallbacks here are chosen to stay
+ * readable in either theme.
+ */
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 120ms ease, opacity 120ms ease;
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/*
+ * The confirming action. Its fill is the shell's own "contrast" token with the
+ * primary label colour on top, so the pair always comes from the same theme;
+ * if a shell ever lacks the token, the fallback is a dark fill with light text
+ * (readable on both light and dark surfaces) rather than a theme-specific pair.
+ */
+.buttonPrimary {
+  background: var(--dsw-alias-button-primary-fill, #2b2f36);
+  color: var(--dsw-alias-label-primary-foreground, #ffffff);
+}
+
+.buttonPrimary:not(:disabled):hover {
+  background: var(--dsw-alias-button-primary-hover, #43454a);
+}
+
+.buttonOutline {
+  border-color: var(--dsw-alias-border-l2, currentColor);
+}
+
+.buttonOutline:not(:disabled):hover,
+.button:not(.buttonPrimary):not(:disabled):hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.14));
+}
+
+.input {
+  width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--dsw-alias-border-l2, currentColor);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1, transparent);
+  color: var(--dsw-alias-label-primary, inherit);
+  font: inherit;
+  font-size: 13px;
+}
+
+.input::placeholder {
+  color: var(--dsw-alias-label-caption, rgba(127, 127, 127, 0.9));
+}
+
+.input:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary, currentColor);
+  outline-offset: -1px;
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--dsw-alias-label-primary, inherit);
+}
+
+.toggle input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--dsw-alias-brand-primary, #2b2f36);
+  cursor: pointer;
+}
+
+.pill {
+  padding: 1px 8px;
+  border-radius: 999px;
+  /* On a soft green wash, a dark green label reads in light mode and a light
+     green one in dark mode — the mix keeps both above 4.5:1. */
+  background: color-mix(in srgb, #2ea043 18%, transparent);
+  color: light-dark(#1a7f37, #56d364);
+  font-size: 11px;
+  font-weight: 500;
+}

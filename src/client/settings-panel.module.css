@@ -1,0 +1,32 @@
+/**
+ * Layout for the DOM-mounted settings launcher and its overlay.
+ * The launcher is styled by surfaces.module.css (shared dock).
+ * Colours use the shell's real tokens so the panel follows the theme.
+ */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 61;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: color-mix(in srgb, var(--dsw-alias-bg-overlay, #000) 45%, transparent);
+}
+
+.overlay[hidden] {
+  display: none;
+}
+
+.panel {
+  width: min(820px, 100%);
+  max-height: min(86vh, 900px);
+  overflow-y: auto;
+  padding: 20px 22px;
+  border: 1px solid var(--dsw-alias-border-l2, currentColor);
+  border-radius: 16px;
+  background: var(--dsw-alias-bg-layer-2, Canvas);
+  color: var(--dsw-alias-label-primary, inherit);
+  box-shadow: 0 24px 64px var(--dsw-alias-bg-overlay, rgba(0, 0, 0, 0.3));
+}

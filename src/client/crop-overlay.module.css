@@ -1,0 +1,101 @@
+/**
+ * The in-place crop overlay: a box on the node, and a toolbar next to it.
+ *
+ * Both are absolutely positioned in the stage's coordinate space (the board's
+ * world transform is applied to the wrapper they render inside), so they follow
+ * pan and zoom with the picture they belong to.
+ */
+
+.box {
+  position: absolute;
+  z-index: 15;
+  border: 1px solid var(--dsw-alias-brand-primary, #fff);
+  box-shadow: 0 0 0 9999px rgb(0 0 0 / 35%);
+  cursor: move;
+  touch-action: none;
+}
+
+.thirdV,
+.thirdH {
+  position: absolute;
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary, #fff) 45%, transparent);
+  pointer-events: none;
+}
+
+.thirdV {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+}
+
+.thirdV:not([data-second]) {
+  left: 33.333%;
+}
+
+.thirdV[data-second] {
+  left: 66.666%;
+}
+
+.thirdH {
+  left: 0;
+  right: 0;
+  height: 1px;
+}
+
+.thirdH:not([data-second]) {
+  top: 33.333%;
+}
+
+.thirdH[data-second] {
+  top: 66.666%;
+}
+
+.handle {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border: 1px solid var(--dsw-alias-brand-primary, #fff);
+  border-radius: 2px;
+  background: var(--dsw-alias-bg-base, #fff);
+  touch-action: none;
+}
+
+.handle[data-handle='nw'] { left: 0; top: 0; }
+.handle[data-handle='n'] { left: 50%; top: 0; }
+.handle[data-handle='ne'] { left: 100%; top: 0; }
+.handle[data-handle='e'] { left: 100%; top: 50%; }
+.handle[data-handle='se'] { left: 100%; top: 100%; }
+.handle[data-handle='s'] { left: 50%; top: 100%; }
+.handle[data-handle='sw'] { left: 0; top: 100%; }
+.handle[data-handle='w'] { left: 0; top: 50%; }
+
+.toolbar {
+  position: absolute;
+  z-index: 16;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--dsw-alias-border-l2, currentColor);
+  border-radius: 8px;
+  background: var(--dsw-alias-button-elevated-fill, var(--dsw-alias-bg-layer-2, Canvas));
+  box-shadow: 0 4px 16px rgb(0 0 0 / 22%);
+  white-space: nowrap;
+}
+
+.select {
+  padding: 3px 6px;
+  border: 1px solid var(--dsw-alias-border-l2, currentColor);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-1, Canvas);
+  color: var(--dsw-alias-label-primary, inherit);
+  font: inherit;
+  font-size: 12px;
+}
+
+.size {
+  color: var(--dsw-alias-label-tertiary, inherit);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}

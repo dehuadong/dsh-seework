@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+
+
+# Rust
+target/
+# 验证用的独立构建目录（绕开运行中的服务对 target/ 二进制的占用；不入库）
+target-verify/
+
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Env
+.env
+.env.local
+.env.prod
+logs/
+.scratch/
+out-reference/
+tests/
+# OS
+.DS_Store
+Thumbs.db
+.env.probe

@@ -1,0 +1,44 @@
+/**
+ * The floating command bar that hugs the selected board node.
+ *
+ * It is the shell's own chrome rather than part of the scaled world layer, so it
+ * keeps a constant size at every zoom level; only its position comes from the
+ * board's viewport.
+ */
+
+.bar {
+  position: absolute;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--dsw-alias-border-l2, currentColor);
+  border-radius: 8px;
+  background: var(--dsw-alias-button-elevated-fill, var(--dsw-alias-bg-layer-2, Canvas));
+  box-shadow: 0 4px 16px rgb(0 0 0 / 22%);
+}
+
+.button {
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary, inherit);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.button:hover:not(:disabled),
+.button:focus-visible:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover, var(--dsw-alias-bg-layer-3, Canvas));
+  color: var(--dsw-alias-brand-primary, inherit);
+}
+
+.button:disabled {
+  color: var(--dsw-alias-label-tertiary, inherit);
+  cursor: default;
+}

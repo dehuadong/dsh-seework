@@ -1,0 +1,42 @@
+/**
+ * Styling for the SeeWork entries in the shell's conversation header.
+ *
+ * Every value is a real `--dsw-alias-*` token with a fallback that still reads
+ * in either theme; inventing token names silently falls back and ships
+ * dark-on-dark buttons.
+ */
+
+.group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  border: 1px solid var(--dsw-alias-border-l2, currentColor);
+  border-radius: 999px;
+  background: var(--dsw-alias-button-elevated-fill, var(--dsw-alias-bg-layer-2, Canvas));
+  color: var(--dsw-alias-label-primary, inherit);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+  opacity: 0.8;
+  transition: opacity 120ms ease, background 120ms ease;
+}
+
+.button:hover,
+.button:focus-visible {
+  opacity: 1;
+  background: var(--dsw-alias-interactive-bg-hover, var(--dsw-alias-bg-layer-3, Canvas));
+}
+
+.button[data-active='true'] {
+  border-color: var(--dsw-alias-brand-primary, currentColor);
+  color: var(--dsw-alias-brand-primary, inherit);
+  opacity: 1;
+}

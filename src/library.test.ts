@@ -1,0 +1,164 @@
+/**
+ * Material-library tests: the library is what the sidebar (phase 2) and the
+ * canvas (phase 3) read, so a generation must land on disk with its metadata
+ * intact and a corrupt entry must never take the list down.
+ */
+
+import { promises as fs } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import {
+  appendLibraryEntry,
+  clearLibrary,
+  imageSize,
+  libraryDataRoot,
+  libraryImageLocation,
+  listLibrary,
+  readLibraryHead,
+  readLibraryImage,
+  removeLibraryEntry,
+  setLibraryDataRoot,
+} from './library.ts'
+import { fixtureRequest as request, pngBuffer } from './fixtures.ts'
+
+describe('imageSize', () => {
+  it('reads PNG dimensions from the IHDR chunk', () => {
+    expect(imageSize(pngBuffer(320, 180))).toEqual({ width: 320, height: 180 })
+  })
+
+  it('returns undefined for a non-image payload', () => {
+    expect(imageSize(Buffer.from('not an image at all'))).toBeUndefined()
+    expect(imageSize(Buffer.alloc(0))).toBeUndefined()
+  })
+})
+
+describe('library store', () => {
+  let root: string
+  const previous = libraryDataRoot()
+
+  beforeEach(async () => {
+    root = await fs.mkdtemp(path.join(tmpdir(), 'dsh-seework-test-'))
+    setLibraryDataRoot(root)
+  })
+
+  afterEach(async () => {
+    setLibraryDataRoot(previous === '' ? undefined : previous)
+    await fs.rm(root, { recursive: true, force: true })
+  })
+
+  it('writes image files and returns served URLs, never base64', async () => {
+    const entry = await appendLibraryEntry({
+      request: request(),
+      images: [{ b64: pngBuffer(64, 32).toString('base64'), mime: 'image/png' }],
+      cost: 0.22,
+      source: 'agent',
+      sessionId: 'session-1',
+    })
+
+    expect(entry.images).toHaveLength(1)
+    const image = entry.images[0]!
+    expect(image.url).toBe(`/api/dsh-seework/library/image/${image.file}`)
+    expect(image).not.toHaveProperty('b64')
+    expect(image.width).toBe(64)
+    expect(image.height).toBe(32)
+    expect(entry.cost).toBe(0.22)
+    expect(entry.source).toBe('agent')
+
+    const stored = await readLibraryImage(image.file)
+    expect(stored?.mime).toBe('image/png')
+    expect(stored?.data.byteLength).toBe(pngBuffer(64, 32).byteLength)
+  })
+
+  it('tells the Agent the very file the writer created', async () => {
+    // The model cannot see the picture, so the location it reports has to be the
+    // file that really landed on disk — the naming rule is shared, not retyped.
+    const entry = await appendLibraryEntry({
+      request: request(),
+      images: [{ b64: pngBuffer(8, 8).toString('base64'), mime: 'image/jpeg' }],
+      source: 'agent',
+    })
+
+    const image = entry.images[0]!
+    const location = libraryImageLocation(entry.id, 0, 'image/jpeg')
+    expect(location.file).toBe(image.file)
+    expect(location.url).toBe(image.url)
+    expect(location.path).toBe(path.join(root, 'images', image.file))
+    await expect(fs.stat(location.path)).resolves.toBeTruthy()
+  })
+
+  it('lists newest first and reports storage facts for the sidebar', async () => {
+    await appendLibraryEntry({ request: request({ prompt: '第一张' }), images: [{ b64: pngBuffer().toString('base64'), mime: 'image/png' }], source: 'panel' })
+    await appendLibraryEntry({
+      request: request({ prompt: '第二张' }),
+      images: [
+        { b64: pngBuffer(4, 4).toString('base64'), mime: 'image/png' },
+        { b64: pngBuffer(4, 4).toString('base64'), mime: 'image/png' },
+      ],
+      source: 'agent',
+    })
+
+    const listing = await listLibrary()
+    expect(listing.total).toBe(2)
+    expect(listing.imageCount).toBe(3)
+    expect(listing.dataRoot).toBe(root)
+    expect(listing.entries.map(entry => entry.prompt)).toEqual(['第二张', '第一张'])
+  })
+
+  it('reports its identity for the poll, newest entry first', async () => {
+    // The page has no push channel: this head is how it notices a generation
+    // that finished in the host, so it must name the newest entry and stay tiny.
+    expect(await readLibraryHead()).toEqual({ total: 0 })
+
+    await appendLibraryEntry({ request: request({ prompt: '第一张' }), images: [{ b64: pngBuffer().toString('base64'), mime: 'image/png' }], source: 'panel' })
+    const older = await readLibraryHead()
+    expect(older.total).toBe(1)
+    expect(typeof older.newestId).toBe('string')
+
+    await appendLibraryEntry({ request: request({ prompt: '第二张' }), images: [{ b64: pngBuffer().toString('base64'), mime: 'image/png' }], source: 'agent' })
+    const newest = await readLibraryHead()
+    expect(newest.total).toBe(2)
+    expect(newest.newestId).not.toBe(older.newestId)
+    expect(typeof newest.newestAt).toBe('number')
+  })
+
+  it('removes one entry together with its files', async () => {
+    const entry = await appendLibraryEntry({
+      request: request(),
+      images: [{ b64: pngBuffer().toString('base64'), mime: 'image/png' }],
+      source: 'panel',
+    })
+    const file = entry.images[0]!.file
+
+    const remaining = await removeLibraryEntry(entry.id)
+    expect(remaining).toHaveLength(0)
+    await expect(fs.stat(path.join(root, 'images', file))).rejects.toThrow()
+  })
+
+  it('clears everything', async () => {
+    await appendLibraryEntry({ request: request(), images: [{ b64: pngBuffer().toString('base64'), mime: 'image/png' }], source: 'panel' })
+    expect((await clearLibrary())).toHaveLength(0)
+    expect((await listLibrary()).total).toBe(0)
+  })
+
+  it('refuses file names that try to escape the images directory', async () => {
+    for (const file of ['../../settings.yaml', 'a/b.png', 'index.json', '..\\win.png', 'x.png.bak']) {
+      await expect(readLibraryImage(file)).resolves.toBeUndefined()
+    }
+  })
+
+  it('survives a corrupt index instead of failing the sidebar', async () => {
+    await fs.writeFile(path.join(root, 'index.json'), '{ this is not json', 'utf8')
+    await expect(listLibrary()).resolves.toMatchObject({ entries: [], total: 0 })
+  })
+
+  it('drops malformed entries while keeping the good ones', async () => {
+    await appendLibraryEntry({ request: request(), images: [{ b64: pngBuffer().toString('base64'), mime: 'image/png' }], source: 'panel' })
+    const raw = JSON.parse(await fs.readFile(path.join(root, 'index.json'), 'utf8')) as { entries: unknown[] }
+    raw.entries.push({ id: 42, createdAt: 'yesterday' })
+    await fs.writeFile(path.join(root, 'index.json'), JSON.stringify(raw), 'utf8')
+
+    const listing = await listLibrary()
+    expect(listing.total).toBe(1)
+  })
+})

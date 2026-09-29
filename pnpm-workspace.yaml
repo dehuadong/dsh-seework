@@ -1,0 +1,8 @@
+# esbuild ships a prebuilt native binary installed by a postinstall script;
+# vitest's Vite pipeline needs it, so its build script is allowed here.
+packages:
+  - .
+allowBuilds:
+  esbuild: true
+onlyBuiltDependencies:
+  - esbuild

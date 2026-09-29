@@ -1,0 +1,9 @@
+# dsh-seework bundle patch: inserts the plugin row into the web profile roster.
+# The row is a bare plugin by package name: the host half (exports ".") runs in
+# the host process (settings section + SeeAI Hub proxy routes + agent image
+# tools), and the `dsh.client` declaration in package.json makes the browser
+# half (exports "./client", served at /plugins/dsh-seework/client.js) load in
+# the web GUI.
+- insert:
+    - id: seework
+      name: 'dsh-seework'

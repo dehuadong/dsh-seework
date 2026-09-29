@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "categories": [
+    { "id": "capability", "name": "模型能力与请求解析", "scope": "模型形状、能力表、有效值/丢弃规则、上限与比例默认、参数裁剪" },
+    { "id": "catalog", "name": "模型目录", "scope": "目录发现与回退（含裸 /models）、能力已知/未知、目录条目结构版本" },
+    { "id": "generation", "name": "生图调用", "scope": "出站请求与参数拼装、任务提交与轮询语义、错误与额度回报" },
+    { "id": "assets", "name": "本地素材库", "scope": "图片落盘与索引、读回、附件与会话卡片取材" },
+    { "id": "canvas", "name": "侧边栏、设置与画布", "scope": "素材库与画面板、设置卡片与设置桥、画布存储与修订栅栏、视口数学" },
+    { "id": "agent-surface", "name": "Agent 可见面", "scope": "工具注册与 schema、系统提示词公告、随包技能正文" },
+    { "id": "dev-infra", "name": "构建与验证", "scope": "构建产物与插件装配、profile 同步、探针与端到端核对、测试接缝" }
+  ]
+}

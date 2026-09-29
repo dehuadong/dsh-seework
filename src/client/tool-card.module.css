@@ -1,0 +1,111 @@
+/**
+ * Styling for SeeWork's image card in the conversation.
+ *
+ * Same discipline as the rest of this plugin: only real `--dsw-alias-*` /
+ * `--dsh-*` tokens, each with a fallback that still reads in either theme.
+ * The card sits inside the shell's tool-call row, so it stays quiet: no frame of
+ * its own beyond spacing, and thumbnails capped so a 4K result cannot take the
+ * whole transcript.
+ */
+
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 0 4px 4px;
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  line-height: 1.4;
+}
+
+.title {
+  color: var(--dsw-alias-label-primary, inherit);
+  font-weight: 500;
+}
+
+.status {
+  color: var(--dsw-alias-label-tertiary, inherit);
+}
+
+.root[data-state='failed'] .status {
+  color: var(--dsw-alias-state-error-primary, inherit);
+}
+
+.message {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary, inherit);
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.imageLink {
+  display: block;
+  border: 1px solid var(--dsw-alias-border-l1, currentColor);
+  border-radius: 10px;
+  overflow: hidden;
+  line-height: 0;
+}
+
+/** One thumbnail with the actions that belong to it. */
+.thumb {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+/** The per-picture 「加到画布」 chip. */
+.action {
+  padding: 2px 8px;
+  border: 1px solid var(--dsw-alias-border-l2, currentColor);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary, inherit);
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  cursor: pointer;
+}
+
+.action:hover,
+.action:focus-visible {
+  border-color: var(--dsw-alias-brand-primary, currentColor);
+  color: var(--dsw-alias-brand-primary, inherit);
+}
+
+.imageLink:hover,
+.imageLink:focus-visible {
+  border-color: var(--dsw-alias-brand-primary, currentColor);
+}
+
+.image {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 220px;
+  max-height: 220px;
+  object-fit: contain;
+  background: var(--dsw-alias-bg-layer-2, Canvas);
+}
+
+.missing {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border: 1px dashed var(--dsw-alias-border-l2, currentColor);
+  border-radius: 10px;
+  color: var(--dsw-alias-label-tertiary, inherit);
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+}

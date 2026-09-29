@@ -1,0 +1,55 @@
+/**
+ * The enlarged view of one conversation image.
+ *
+ * Only the overlay itself is styled here; the thumbnails live in the shell's own
+ * markup, so their cap is injected as a rule (see `chat-images.tsx`).
+ */
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: color-mix(in srgb, var(--dsw-alias-bg-base, #000) 72%, transparent);
+  cursor: zoom-out;
+}
+
+.full {
+  max-width: 92vw;
+  max-height: 92vh;
+  width: auto;
+  height: auto;
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgb(0 0 0 / 45%);
+  cursor: default;
+}
+
+.actions {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+}
+
+.action {
+  padding: 7px 16px;
+  border: 1px solid var(--dsw-alias-border-l2, currentColor);
+  border-radius: 999px;
+  background: var(--dsw-alias-button-elevated-fill, var(--dsw-alias-bg-layer-2, Canvas));
+  color: var(--dsw-alias-label-primary, inherit);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.action:hover,
+.action:focus-visible {
+  border-color: var(--dsw-alias-brand-primary, currentColor);
+  color: var(--dsw-alias-brand-primary, inherit);
+}

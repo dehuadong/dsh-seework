@@ -1,0 +1,190 @@
+/**
+ * Canvas plugin layout. Colours come from the shell's real tokens so the
+ * settings card follows the active theme in both appearances.
+ */
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 4px 0 12px;
+  color: var(--dsw-alias-label-primary, inherit);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--dsw-alias-border-l1, currentColor);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-1, transparent);
+}
+
+.sectionTitle {
+  margin: 0 0 2px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary, inherit);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--dsw-alias-label-primary, inherit);
+  font-weight: 500;
+}
+
+.hint {
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary, rgba(127, 127, 127, 0.95));
+  font-size: 12px;
+}
+
+.hint code,
+.modelId {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--dsw-alias-bg-layer-3, rgba(127, 127, 127, 0.14));
+  color: var(--dsw-alias-label-secondary, inherit);
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 11px;
+}
+
+/** A value the user reads but does not edit (the local data root). */
+.fixedValue {
+  padding: 6px 8px;
+  border: 1px dashed var(--dsw-alias-border-l2, currentColor);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-1, rgba(127, 127, 127, 0.06));
+  color: var(--dsw-alias-label-secondary, inherit);
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+/** The data-root row: the path the host reported, plus the buttons that change it. */
+.dirRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dirRow .fixedValue {
+  flex: 1;
+  min-width: 0;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.select {
+  width: 100%;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--dsw-alias-border-l2, currentColor);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1, transparent);
+  color: var(--dsw-alias-label-primary, inherit);
+  font: inherit;
+}
+
+.modelList {
+  display: flex;
+  flex-direction: column;
+  max-height: 280px;
+  overflow-y: auto;
+  border: 1px solid var(--dsw-alias-border-l1, currentColor);
+  border-radius: 10px;
+}
+
+.modelRow {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.modelRow + .modelRow {
+  border-top: 1px solid var(--dsw-alias-border-l1, currentColor);
+}
+
+.modelRow:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.08));
+}
+
+.modelMain {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.modelName {
+  color: var(--dsw-alias-label-primary, inherit);
+  font-weight: 500;
+}
+
+.modelCapability {
+  width: 100%;
+  color: var(--dsw-alias-label-tertiary, rgba(127, 127, 127, 0.95));
+  font-size: 12px;
+}
+
+.switches {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.muted {
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary, rgba(127, 127, 127, 0.95));
+}
+
+.ok,
+.warn,
+.error {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.ok {
+  background: color-mix(in srgb, #2ea043 18%, transparent);
+  color: light-dark(#1a7f37, #56d364);
+}
+
+.warn {
+  background: color-mix(in srgb, #d29922 20%, transparent);
+  color: light-dark(#8a6100, #e3b341);
+}
+
+.error {
+  background: color-mix(in srgb, #f85149 16%, transparent);
+  color: light-dark(#b3261e, #ff7b72);
+}
