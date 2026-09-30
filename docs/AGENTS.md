@@ -18,7 +18,7 @@
 
 不存在的位置不要为了凑齐表格而新建；研究、验证清单与外部参考资料按需建立，不构成默认文档层。
 
-说明：`architecture.md`、`gui-verification.md`为历史开发文档，后期新开发不再记录
+说明：`architecture.md`、`gui-verification.md`为历史开发文档，后期新开发不再记录，如需要另外建档
 
 ## 状态头与修订
 
