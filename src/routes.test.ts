@@ -23,6 +23,7 @@ import {
   CANVAS_API,
   CATALOG_API,
   GENERATE_API,
+  IMAGE_API,
   LIBRARY_API,
   SEEWORK_SETTINGS_NAMESPACE,
   SETTINGS_API,
@@ -864,6 +865,103 @@ describe('canvas-owned pictures', () => {
     })
     expect(removed.status).toBe(200)
     await expect(fs.stat(path.join(dataRoot, 'canvas', 'assets', file))).rejects.toThrow()
+  })
+})
+
+describe('showing a picture in the file manager', () => {
+  /**
+   * The reveal route takes a file name and its store, never a path: it composes
+   * the path from that store's own directory, after that store's own name check.
+   *
+   * The desktop call is a seam here, so grading this route never opens a window
+   * on the machine running the suite; what the real file manager is asked to do
+   * is pinned in `reveal.test.ts`.
+   */
+  let dataRoot = ''
+  let server: Server
+  let base = ''
+  /** The stubbed desktop: the paths it was asked for, and whether it refuses. */
+  let desktop: { asked: string[]; fail: boolean }
+
+  beforeEach(() => { desktop = { asked: [], fail: false } })
+
+  beforeAll(async () => {
+    dataRoot = await fs.mkdtemp(path.join(tmpdir(), 'dsh-seework-reveal-'))
+    setLibraryDataRoot(dataRoot)
+    const settings = fakeSettings({})
+    server = createServer((req, res) => {
+      const url = (req.url ?? '/').split('?')[0] ?? '/'
+      for (const route of makeRoutes({
+        settings: settings.seam,
+        resolve: () => settings.document as Config,
+        runtime: new GenerationRuntime(() => effectiveConfig(settings.document as Config)),
+        reveal: async file => {
+          if (desktop.fail) throw new Error('这个平台没有可用的文件管理器')
+          desktop.asked.push(file)
+        },
+      })) {
+        const matches = route.kind === 'exact' ? url === route.path : url === route.path || url.startsWith(`${route.path}/`)
+        if (!matches) continue
+        void Promise.resolve(route.handler(req, res)).catch(() => {
+          if (!res.headersSent) res.writeHead(500)
+          res.end()
+        })
+        return
+      }
+      res.writeHead(404)
+      res.end()
+    })
+    await new Promise<void>(resolve => { server.listen(0, '127.0.0.1', () => { resolve() }) })
+    const address = server.address()
+    base = `http://127.0.0.1:${typeof address === 'object' && address !== null ? address.port : 0}`
+  })
+
+  afterAll(async () => {
+    await new Promise<void>(resolve => { server.close(() => { resolve() }) })
+    setLibraryDataRoot(undefined)
+    await fs.rm(dataRoot, { recursive: true, force: true })
+  })
+
+  const post = (body: unknown): Promise<Response> =>
+    fetch(`${base}${IMAGE_API.reveal}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+
+  it('composes the path from the name, under the store that owns it', async () => {
+    const file = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee-0.png'
+
+    const library = await post({ file, source: 'library' })
+    expect(library.status).toBe(200)
+    expect(await library.json()).toEqual({ ok: true, value: { revealed: true } })
+    expect(desktop.asked).toEqual([path.join(dataRoot, 'images', file)])
+
+    // The same name in the other store is a different file, in its own directory.
+    expect((await post({ file, source: 'canvas' })).status).toBe(200)
+    expect(desktop.asked[1]).toBe(path.join(dataRoot, 'canvas', 'assets', file))
+  })
+
+  it('refuses anything it cannot turn into one of its own files', async () => {
+    const file = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee-0.png'
+    const refused = [
+      // Not the name shape either store writes, so not a path at all.
+      { file: '../../settings.yaml', source: 'library' },
+      { file: '/etc/passwd', source: 'canvas' },
+      { file: 'shot.png', source: 'library' },
+      // A store that does not exist, and one that is missing entirely.
+      { file, source: 'elsewhere' },
+      { file },
+    ]
+    for (const body of refused) expect((await post(body)).status).toBe(400)
+    expect(desktop.asked).toEqual([])
+  })
+
+  it('reports a desktop that refused instead of claiming it revealed anything', async () => {
+    desktop.fail = true
+    const response = await post({ file: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee-0.png', source: 'library' })
+    expect(response.status).toBe(500)
+    expect(await response.json()).toMatchObject({ ok: false, code: 'reveal_failed' })
   })
 })
 

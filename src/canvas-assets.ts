@@ -75,6 +75,21 @@ export async function writeCanvasAsset(input: { dataUrl: string }): Promise<Canv
 }
 
 /**
+ * Absolute path of one canvas asset, or undefined when the name is not one this
+ * store writes.
+ *
+ * The read route and the reveal route both come through here, so the name shape
+ * is checked once: it is the only thing that turns a name into a path, which is
+ * what keeps a caller from reaching outside the assets directory.
+ *
+ * @param file - the asset's file name.
+ * @returns the path on disk, for a name this store could have written.
+ */
+export function canvasAssetPath(file: string): string | undefined {
+  return CANVAS_FILE_PATTERN.test(file) ? path.join(canvasAssetsDir(), file) : undefined
+}
+
+/**
  * Read one canvas asset back.
  *
  * The name shape is re-checked here as well as in the card validator: this is the
@@ -85,9 +100,10 @@ export async function writeCanvasAsset(input: { dataUrl: string }): Promise<Canv
  * @returns the bytes and their media type, or undefined when it is not there.
  */
 export async function readCanvasAsset(file: string): Promise<{ mime: string; data: Buffer } | undefined> {
-  if (!CANVAS_FILE_PATTERN.test(file)) return undefined
+  const target = canvasAssetPath(file)
+  if (target === undefined) return undefined
   try {
-    return { mime: mimeOfAsset(file), data: await fs.readFile(path.join(canvasAssetsDir(), file)) }
+    return { mime: mimeOfAsset(file), data: await fs.readFile(target) }
   } catch {
     return undefined
   }

@@ -404,15 +404,34 @@ export async function clearLibrary(): Promise<LibraryEntry[]> {
   })
 }
 
+/**
+ * The names this store writes, and the only thing that turns one into a path.
+ *
+ * Both the read route and the reveal route go through here, so the rule lives
+ * once: a caller holding a name cannot reach a file outside the images
+ * directory, whatever it passes.
+ */
+const LIBRARY_IMAGE_NAME = /^[a-zA-Z0-9][a-zA-Z0-9-]*-[0-9]+\.(png|jpg|jpeg|webp|gif)$/
+
 /** Read one stored image file by its (validated) file name. */
 export async function readLibraryImage(file: string): Promise<{ data: Buffer; mime: string } | undefined> {
   // Only accept `<uuid>-<index>.<ext>` — the exact names this store writes — so
   // the route can never read outside the images directory.
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9-]*-[0-9]+\.(png|jpg|jpeg|webp|gif)$/.test(file)) return undefined
+  if (!LIBRARY_IMAGE_NAME.test(file)) return undefined
   try {
     const data = await fs.readFile(path.join(imagesDir(), file))
     return { data, mime: mimeOfFile(file) }
   } catch {
     return undefined
   }
+}
+
+/**
+ * Absolute path of one stored image, or undefined when the name is not one this
+ * store writes.
+ * @param file - the image's file name.
+ * @returns the path on disk, for a name this store could have written.
+ */
+export function libraryImagePath(file: string): string | undefined {
+  return LIBRARY_IMAGE_NAME.test(file) ? path.join(imagesDir(), file) : undefined
 }

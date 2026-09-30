@@ -23,21 +23,24 @@ import { discoverModels } from './catalog.ts'
 import type { CatalogRefresher } from './catalog-refresh.ts'
 import { GenerationRuntime, SeeWorkRuntimeError } from './generation-runtime.ts'
 import { effectiveConfig, type Config } from './settings.ts'
-import { clearLibrary, listLibrary, readLibraryHead, readLibraryImage, removeLibraryEntry } from './library.ts'
-import { deleteCanvasAssets, listCanvasAssetFiles, readCanvasAsset, writeCanvasAsset } from './canvas-assets.ts'
+import { clearLibrary, libraryImagePath, listLibrary, readLibraryHead, readLibraryImage, removeLibraryEntry } from './library.ts'
+import { canvasAssetPath, deleteCanvasAssets, listCanvasAssetFiles, readCanvasAsset, writeCanvasAsset } from './canvas-assets.ts'
 import { directoryPickerStatus, pickDirectory } from './directory-picker.ts'
 import { CanvasConflictError, CanvasInputError, createCanvas, listCanvases, readCanvas, referencedCanvasFiles, removeCanvas, saveCanvas } from './canvas-store.ts'
+import { revealInFileManager } from './reveal.ts'
 import {
   ATTACHMENT_API,
   CANVAS_API,
   CATALOG_API,
   GENERATE_API,
+  IMAGE_API,
   LIBRARY_API,
   SETTINGS_API,
   SEEWORK_SETTINGS_NAMESPACE,
   TASK_API,
   UPDATE_API,
   isImageMedia,
+  type CanvasCardSource,
   type GenerateRequest,
   type UpdateStart,
 } from './protocol.ts'
@@ -92,6 +95,13 @@ export interface SeeWorkRoutesDeps {
    * shaped differently.
    */
   updateHost?: () => UpdateHost | undefined
+  /**
+   * How the reveal route asks the desktop to show a file.
+   *
+   * Defaults to the real file manager; a test stands in for it so grading the
+   * route never opens a window on the machine running the suite.
+   */
+  reveal?: (path: string) => Promise<void>
 }
 
 /** The attachment-store face the tool-result image route needs. */
@@ -240,6 +250,22 @@ async function serveLibraryImage(res: ServerResponse, file: string): Promise<voi
     'cache-control': 'private, max-age=31536000, immutable',
   })
   res.end(image.data)
+}
+
+/**
+ * Absolute path of one of this plugin's pictures, or undefined when the name is
+ * not one its store writes.
+ *
+ * This is the only place a reveal request becomes a filesystem path, and it goes
+ * through each store's own name rule — so the route cannot be pointed at a file
+ * the plugin did not write.
+ *
+ * @param file - the picture's file name.
+ * @param source - which store holds it.
+ * @returns the path on disk, or undefined for a name that store would not write.
+ */
+function imagePathFor(file: string, source: CanvasCardSource): string | undefined {
+  return source === 'canvas' ? canvasAssetPath(file) : libraryImagePath(file)
 }
 
 /**
@@ -587,6 +613,32 @@ export function makeRoutes(deps: SeeWorkRoutesDeps): WebRoute[] {
       } catch (error) {
         const failure = failureOf(error)
         fail(res, failure.status, failure.code, failure.message)
+      }
+    }),
+
+    // ---- showing a picture's file in the host's file manager --------------
+    // The client sends a file name and its store, never a path: the absolute
+    // path is composed here from the store's own directory, after that store's
+    // own name check. So a page cannot ask this route to reveal anything except
+    // a picture this plugin wrote.
+    route('exact', IMAGE_API.reveal, async (req, res) => {
+      if (req.method !== 'POST') return fail(res, 405, 'method_not_allowed', '请使用 POST。')
+      if (!loopback(req, res)) return
+      const body = await readJsonBody(req)
+      if (body === undefined) return fail(res, 400, 'invalid_body', '请求体不是合法 JSON 对象。')
+      const source = body.source === 'library' || body.source === 'canvas' ? body.source : undefined
+      if (typeof body.file !== 'string' || source === undefined) {
+        return fail(res, 400, 'invalid_body', '需要图片文件名与来源（library / canvas）。')
+      }
+      const target = imagePathFor(body.file, source)
+      if (target === undefined) return fail(res, 400, 'invalid_body', '图片文件名不合法。')
+      try {
+        await (deps.reveal ?? revealInFileManager)(target)
+        ok(res, { revealed: true })
+      } catch (error) {
+        // The path exists as far as this store knows; a failure here is the
+        // desktop's (no file manager, or the command never answered).
+        fail(res, 500, 'reveal_failed', `打开文件所在位置失败：${error instanceof Error ? error.message : String(error)}`)
       }
     }),
 

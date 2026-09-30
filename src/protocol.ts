@@ -312,6 +312,26 @@ export interface CanvasAssetSummary {
   referenced: boolean
 }
 
+/**
+ * The one operation both image stores share: showing a picture's file in the
+ * host's file manager.
+ *
+ * It sits under neither store's prefix because the request names the store it
+ * means, and the same action has to work for a generated picture and for a
+ * canvas-owned one (an upload, an annotation, a crop).
+ */
+export const IMAGE_API = {
+  reveal: '/api/dsh-seework/image/reveal',
+} as const
+
+/** What the reveal route takes: which picture, and which store holds it. */
+export interface ImageRevealRequest {
+  /** The picture's file name, in the shape its own store writes. */
+  file: string
+  /** Which store the name belongs to. */
+  source: CanvasCardSource
+}
+
 /** What the canvas housekeeping route reports. */
 export interface CanvasAssetListing {
   files: CanvasAssetSummary[]

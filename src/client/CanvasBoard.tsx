@@ -193,20 +193,36 @@ async function loadBurnedSize(dataUrl: string): Promise<{ dataUrl: string; width
   }, [])
   /** Whether the compact layer list is open. */
   const [layersOpen, setLayersOpen] = useState(false)
-  /** Where the board's right-click menu is, in stage coordinates. */
-  const [boardMenu, setBoardMenu] = useState<{ x: number; y: number } | undefined>(undefined)
+  /**
+   * The board's right-click menu: where it is, in stage coordinates, and the card
+   * it was opened on (absent when it was opened on the board's own space).
+   */
+  const [canvasMenu, setCanvasMenu] = useState<{ x: number; y: number; cardId?: string } | undefined>(undefined)
+  /** The picture being looked at enlarged, or undefined. */
+  const [zoomCard, setZoomCard] = useState<CanvasCard | undefined>(undefined)
   /** The hidden picker the menu's upload item opens. */
   const uploadInputRef = useRef<HTMLInputElement | null>(null)
 
   // Escape puts the board's menu away, like every other transient surface here.
   useEffect(() => {
-    if (boardMenu === undefined) return
+    if (canvasMenu === undefined) return
     const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') setBoardMenu(undefined)
+      if (event.key === 'Escape') setCanvasMenu(undefined)
     }
     document.addEventListener('keydown', onKey)
     return () => { document.removeEventListener('keydown', onKey) }
-  }, [boardMenu])
+  }, [canvasMenu])
+
+  // Escape closes the enlarged picture too; it is the same kind of transient
+  // surface as the menu above.
+  useEffect(() => {
+    if (zoomCard === undefined) return
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setZoomCard(undefined)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('keydown', onKey) }
+  }, [zoomCard])
 
   /**
    * Open one edit mode for a card.
@@ -440,8 +456,8 @@ async function loadBurnedSize(dataUrl: string): Promise<{ dataUrl: string; width
 
   const beginPan = (event: React.PointerEvent<HTMLDivElement>): void => {
     // Any press on the board puts the menu away, whichever button it came from:
-    // a right-click reopens it where the cursor now is (see `openBoardMenu`).
-    setBoardMenu(undefined)
+    // a right-click reopens it where the cursor now is (see `openCanvasMenu`).
+    setCanvasMenu(undefined)
     if (event.button !== 0) return
     // Pressing the board puts the work back on the board: the layer list is a
     // look-up aid, not a panel that stays in the way (user report: 「图层展开后，
@@ -537,22 +553,36 @@ async function loadBurnedSize(dataUrl: string): Promise<{ dataUrl: string; width
   /**
    * Open the board's own menu where the user right-clicked.
    *
-   * It lives on the board rather than in the toolbar because what it offers is
-   * "put a picture here": the point under the cursor is what the user is
-   * pointing at, and the picture lands in the middle of what they can see.
-   *
-   * It belongs to the board's own space, so a right-click on a picture is left
-   * alone: offering to upload a picture over an existing one reads as if the
-   * upload acted on that one. The platform's own menu (with 「图片另存为」) stays
-   * available there instead.
+   * The menu follows what was under the cursor: on a picture it offers that
+   * picture's own action, and on the board's space it offers to put a new picture
+   * there. One surface for both, so closing it, Escape and repositioning behave
+   * the same way whichever was opened.
    */
-  const openBoardMenu = (event: React.MouseEvent<HTMLDivElement>): void => {
-    if ((event.target as HTMLElement).closest('[data-seework-card]') !== null) return
+  const openCanvasMenu = (event: React.MouseEvent<HTMLDivElement>): void => {
     // The browser's own menu would otherwise cover this one.
     event.preventDefault()
     const rect = event.currentTarget.getBoundingClientRect()
-    setBoardMenu({ x: Math.round(event.clientX - rect.left), y: Math.round(event.clientY - rect.top) })
+    const cardId = (event.target as HTMLElement).closest('[data-seework-card]')?.getAttribute('data-seework-card') ?? undefined
+    setCanvasMenu({
+      x: Math.round(event.clientX - rect.left),
+      y: Math.round(event.clientY - rect.top),
+      ...cardId === undefined ? {} : { cardId },
+    })
   }
+
+  /**
+   * Show one picture's file in the host's file manager.
+   *
+   * The board holds a file name, not a path: where the picture really lives is
+   * the host's business, and it is the host that opens the folder. A failure is
+   * reported rather than swallowed — the user asked for a window to appear.
+   */
+  const revealPicture = useCallback(async (card: CanvasCard): Promise<void> => {
+    const file = card.file
+    if (file === undefined || file === '') return
+    const result = await api.revealImage(file, card.source ?? 'library')
+    if (!result.ok) showAssetNotice(`打开文件所在位置失败：${result.message}`)
+  }, [api, showAssetNotice])
 
   /**
    * Put the pictures the user picked onto the board.
@@ -768,7 +798,7 @@ async function loadBurnedSize(dataUrl: string): Promise<{ dataUrl: string; width
         ref={surfaceRef}
         data-dsh-seework-board=""
         onPointerDown={beginPan}
-        onContextMenu={openBoardMenu}
+        onContextMenu={openCanvasMenu}
         style={{ cursor: gestureRef.current?.kind === 'pan' ? 'grabbing' : 'default' }}
       >
         <div
@@ -784,6 +814,7 @@ async function loadBurnedSize(dataUrl: string): Promise<{ dataUrl: string; width
               onSelect={() => { selectCard(card) }}
               onBeginMove={event => { beginMove(event, card) }}
               onBeginResize={event => { beginResize(event, card) }}
+              onZoom={() => { setZoomCard(card) }}
               onText={text => { store.updateCard(card.id, { text }) }}
               onRemove={() => { removeCard(card) }}
               badge={canvasOriginLabel(originOf(card))}
@@ -870,28 +901,45 @@ async function loadBurnedSize(dataUrl: string): Promise<{ dataUrl: string; width
           )}
 
         {/* The board's own menu. HTML over the board, in stage coordinates, so
-            it keeps its size at every zoom and never scales with the world. */}
-        {boardMenu === undefined
+            it keeps its size at every zoom and never scales with the world. What
+            it offers depends on what was right-clicked. */}
+        {canvasMenu === undefined
           ? null
           : (
             <div
               className={css.boardMenu}
-              data-dsh-seework-board-menu=""
+              data-dsh-seework-canvas-menu=""
               role="group"
-              aria-label="画布菜单"
-              style={{ left: boardMenu.x, top: boardMenu.y }}
+              aria-label={canvasMenu.cardId === undefined ? '画布菜单' : '图片菜单'}
+              style={{ left: canvasMenu.x, top: canvasMenu.y }}
               onPointerDown={event => { event.stopPropagation() }}
             >
-              <button
-                type="button"
-                className={css.boardMenuItem}
-                onClick={() => {
-                  setBoardMenu(undefined)
-                  uploadInputRef.current?.click()
-                }}
-              >
-                上传图片素材
-              </button>
+              {canvasMenu.cardId === undefined
+                ? (
+                  <button
+                    type="button"
+                    className={css.boardMenuItem}
+                    onClick={() => {
+                      setCanvasMenu(undefined)
+                      uploadInputRef.current?.click()
+                    }}
+                  >
+                    上传图片素材
+                  </button>
+                )
+                : (
+                  <button
+                    type="button"
+                    className={css.boardMenuItem}
+                    onClick={() => {
+                      const card = boardCards.find(entry => entry.id === canvasMenu.cardId)
+                      setCanvasMenu(undefined)
+                      if (card !== undefined) void revealPicture(card)
+                    }}
+                  >
+                    打开文件所在位置
+                  </button>
+                )}
             </div>
           )}
 
@@ -912,6 +960,39 @@ async function loadBurnedSize(dataUrl: string): Promise<{ dataUrl: string; width
           }}
         />
       </div>
+
+      {/* One picture, enlarged. The same bounded panel as the annotation editor:
+          the pane can be stretched to the whole window (分栏 / 全屏), and a
+          picture that stretched with it would be no easier to look at. */}
+      {zoomCard === undefined
+        ? null
+        : (
+          <div
+            className={css.zoomOverlay}
+            data-dsh-seework-canvas-zoom=""
+            role="dialog"
+            aria-modal="true"
+            aria-label="查看图片"
+            onPointerDown={event => {
+              // Only the backdrop closes it: a press inside the panel is the
+              // user reading the picture, not dismissing it.
+              if (event.target === event.currentTarget) setZoomCard(undefined)
+            }}
+          >
+            <div className={css.zoomPanel} data-dsh-seework-canvas-zoom-panel="">
+              <header className={css.zoomHeader}>
+                <span className={css.zoomTitle}>{canvasOriginLabel(originOf(zoomCard)) ?? '图片'}</span>
+                <Button onClick={() => { setZoomCard(undefined) }}>关闭</Button>
+              </header>
+              <img
+                className={css.zoomImage}
+                src={canvasImageUrl(zoomCard.file ?? '', zoomCard.source)}
+                alt={zoomCard.prompt ?? ''}
+                draggable={false}
+              />
+            </div>
+          </div>
+        )}
 
       {/* The annotation editor takes the whole panel: the picture is the work
           surface, and the board behind it would only compete for attention. */}
@@ -972,6 +1053,7 @@ function CardView({
   onSelect,
   onBeginMove,
   onBeginResize,
+  onZoom,
   onText,
   onRemove,
 }: {
@@ -984,9 +1066,12 @@ function CardView({
   onSelect: () => void
   onBeginMove: (event: React.PointerEvent<HTMLElement>) => void
   onBeginResize: (event: React.PointerEvent<HTMLElement>) => void
+  /** Look at this picture enlarged. */
+  onZoom: () => void
   onText: (text: string) => void
   onRemove: () => void
 }): JSX.Element {
+  const picture = card.kind === 'image'
   return (
     <div
       data-seework-card={card.id}
@@ -1008,7 +1093,15 @@ function CardView({
           ✕
         </button>
       </header>
-      <div className={css.cardBody}>
+      {/* A picture is dragged by its body, not only by the title bar: the whole
+          card is what the user points at. A note keeps the title bar, because its
+          body is where text is selected and edited. */}
+      <div
+        className={picture ? `${css.cardBody} ${css.cardBodyPicture}` : css.cardBody}
+        data-dsh-seework-card-body=""
+        onPointerDown={picture ? onBeginMove : undefined}
+        onDoubleClick={picture ? onZoom : undefined}
+      >
         {card.kind === 'image' && card.file !== undefined
           ? <img className={css.cardImage} src={canvasImageUrl(card.file, card.source)} alt={card.prompt ?? ''} draggable={false} />
           : (

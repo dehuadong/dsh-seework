@@ -8,11 +8,13 @@ import {
   CANVAS_API,
   CATALOG_API,
   GENERATE_API,
+  IMAGE_API,
   LIBRARY_API,
   SETTINGS_API,
   TASK_API,
   UPDATE_API,
   type CanvasAssetListing,
+  type CanvasCardSource,
   type CanvasDocument,
   type CanvasImageRef,
   type CanvasListResult,
@@ -22,6 +24,7 @@ import {
   type DirectoryPickerStatus,
   type GenerateRequest,
   type GenerationTask,
+  type ImageRevealRequest,
   type LibraryEntry,
   type LibraryHead,
   type LibraryListResult,
@@ -171,6 +174,20 @@ export class SeeWorkApi {
    */
   canvasAssets(): Promise<Envelope<CanvasAssetListing>> {
     return postJson<CanvasAssetListing>(CANVAS_API.assets, {})
+  }
+
+  /**
+   * Show one picture's file in the host's file manager.
+   *
+   * Only a file name and its store cross the wire: the host composes the path
+   * from its own store, so the page can never ask for another file.
+   *
+   * @param file - the picture's file name.
+   * @param source - which store holds it.
+   * @returns the host's acknowledgement, or why it could not show it.
+   */
+  revealImage(file: string, source: CanvasCardSource): Promise<Envelope<{ revealed: boolean }>> {
+    return postJson<{ revealed: boolean }>(IMAGE_API.reveal, { file, source } satisfies ImageRevealRequest)
   }
 
   /** Delete every board picture no card shows any more. */

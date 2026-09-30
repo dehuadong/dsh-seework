@@ -470,3 +470,67 @@
   opacity: 0;
   pointer-events: none;
 }
+
+/*
+ * A picture's body is a drag handle as well as its title bar: the hand cursor is
+ * what says so, and it closes while the drag is in progress.
+ */
+.cardBodyPicture {
+  cursor: grab;
+}
+
+.cardBodyPicture:active {
+  cursor: grabbing;
+}
+
+/*
+ * One picture, enlarged. Bounded exactly like the annotation editor's panel, and
+ * for the same reason: the pane can be stretched to the whole window (分栏 /
+ * 全屏), and a picture that stretched with it would be no easier to look at.
+ */
+.zoomOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px;
+  background: color-mix(in srgb, var(--dsw-alias-bg-overlay, #000) 45%, transparent);
+}
+
+.zoomPanel {
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 1000px);
+  max-height: 100%;
+  border: 1px solid var(--dsw-alias-border-l1, currentColor);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-2, Canvas);
+  box-shadow: 0 18px 48px var(--dsw-alias-bg-overlay, rgba(0, 0, 0, 0.32));
+  overflow: hidden;
+}
+
+.zoomHeader {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1, currentColor);
+}
+
+.zoomTitle {
+  color: var(--dsw-alias-label-secondary, inherit);
+  font-size: 12px;
+}
+
+.zoomImage {
+  display: block;
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  object-fit: contain;
+  background: var(--dsw-alias-bg-layer-3, rgba(127, 127, 127, 0.1));
+}
