@@ -9,12 +9,18 @@
 
 import { CANVAS_NEW_IMAGE_SIZE } from './canvas-limits.ts'
 import { screenToBoard } from './canvas-viewport.ts'
-import type { CanvasCard, CanvasCardOrigin, CanvasViewport } from './protocol.ts'
+import type { CanvasCard, CanvasCardOrigin, CanvasCardSource, CanvasViewport } from './protocol.ts'
 
 /** One picture to place, as the library stores it. */
 export interface PlacedImage {
   /** Library file name the card points at. */
   file: string
+  /**
+   * Which store `file` belongs to. Absent means the material library, which is
+   * what a picture picked out of it is; a board's own asset (an upload, a
+   * composite) says `canvas`, or the card would point at the wrong route.
+   */
+  source?: CanvasCardSource | undefined
   width?: number | undefined
   height?: number | undefined
   /** Model that produced it, shown on the card. */
@@ -48,6 +54,7 @@ export function centeredImageCard(image: PlacedImage, centre: { x: number; y: nu
     file: image.file,
     model: image.model ?? '',
     prompt: image.prompt ?? '',
+    ...image.source === undefined ? {} : { source: image.source },
     ...image.origin === undefined ? {} : { origin: image.origin },
   }
 }

@@ -24,10 +24,14 @@ import { NodeFloatingBar } from './NodeFloatingBar.tsx'
 import { Button, TextInput } from './controls.tsx'
 import { unusedCardId, type CanvasState, type CanvasStore } from './canvas-store.ts'
 import type { CanvasStore as CanvasStoreType } from './canvas-store.ts'
+import { isUploadableImage, readImageDataUrl } from './canvas-upload.ts'
 import css from './canvas.module.css'
 
 /** How far a click must travel before it counts as a drag. */
 const DRAG_THRESHOLD_PX = 3
+
+/** Gap between pictures uploaded in one go, in board pixels. */
+const UPLOAD_GAP_PX = 24
 
 /** How much of a card must be on screen before the layer list leaves the view alone. */
 const LAYER_REVEAL_MARGIN = 24
@@ -58,7 +62,13 @@ function formatBytes(bytes: number): string {
  * @returns the tooltip text.
  */
 function removeHint(card: CanvasCard): string {
-  if (card.source === 'canvas') return '从画布移除（这张合成图的文件也会一起删掉）'
+  // A board-owned picture takes its file with it — but an uploaded one is not a
+  // composite, and calling it one would be a lie the user acts on.
+  if (card.source === 'canvas') {
+    return card.origin === 'upload'
+      ? '从画布移除（这张上传图片的文件也会一起删掉）'
+      : '从画布移除（这张合成图的文件也会一起删掉）'
+  }
   if (card.kind === 'image') return '从画布移除（不会删除素材库里的文件）'
   return '从画布移除'
 }
@@ -183,6 +193,20 @@ async function loadBurnedSize(dataUrl: string): Promise<{ dataUrl: string; width
   }, [])
   /** Whether the compact layer list is open. */
   const [layersOpen, setLayersOpen] = useState(false)
+  /** Where the board's right-click menu is, in stage coordinates. */
+  const [boardMenu, setBoardMenu] = useState<{ x: number; y: number } | undefined>(undefined)
+  /** The hidden picker the menu's upload item opens. */
+  const uploadInputRef = useRef<HTMLInputElement | null>(null)
+
+  // Escape puts the board's menu away, like every other transient surface here.
+  useEffect(() => {
+    if (boardMenu === undefined) return
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setBoardMenu(undefined)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('keydown', onKey) }
+  }, [boardMenu])
 
   /**
    * Open one edit mode for a card.
@@ -415,6 +439,9 @@ async function loadBurnedSize(dataUrl: string): Promise<{ dataUrl: string; width
   }, [selected, store])
 
   const beginPan = (event: React.PointerEvent<HTMLDivElement>): void => {
+    // Any press on the board puts the menu away, whichever button it came from:
+    // a right-click reopens it where the cursor now is (see `openBoardMenu`).
+    setBoardMenu(undefined)
     if (event.button !== 0) return
     // Pressing the board puts the work back on the board: the layer list is a
     // look-up aid, not a panel that stays in the way (user report: 「图层展开后，
@@ -506,6 +533,78 @@ async function loadBurnedSize(dataUrl: string): Promise<{ dataUrl: string; width
   }, [board, stageSize, store])
 
   const boardCards = useMemo(() => [...(board?.cards ?? [])].sort((left, right) => left.z - right.z), [board?.cards])
+
+  /**
+   * Open the board's own menu where the user right-clicked.
+   *
+   * It lives on the board rather than in the toolbar because what it offers is
+   * "put a picture here": the point under the cursor is what the user is
+   * pointing at, and the picture lands in the middle of what they can see.
+   */
+  const openBoardMenu = (event: React.MouseEvent<HTMLDivElement>): void => {
+    // The browser's own menu would otherwise cover this one.
+    event.preventDefault()
+    const rect = event.currentTarget.getBoundingClientRect()
+    setBoardMenu({ x: Math.round(event.clientX - rect.left), y: Math.round(event.clientY - rect.top) })
+  }
+
+  /**
+   * Put the pictures the user picked onto the board.
+   *
+   * Each file becomes its own canvas asset and its own card, laid out in a row
+   * across the middle of the view — the same place 「从素材库添加」 puts one, so
+   * an upload never lands off-screen. A file that is not a PNG or a JPEG is
+   * named in a notice instead of being written.
+   */
+  const uploadImages = useCallback(async (files: readonly File[]): Promise<void> => {
+    if (files.length === 0) return
+    const refused = files.filter(file => !isUploadableImage(file))
+    if (refused.length > 0) {
+      showAssetNotice(`只支持 PNG / JPEG：${refused.map(file => file.name).join('、')} 没有上传。`)
+    }
+    const accepted = files.filter(isUploadableImage)
+    if (accepted.length === 0) return
+    const current = store.getSnapshot().board
+    if (current === undefined) return
+    setBusy(true)
+    try {
+      const centre = stageCentre(current.viewport, stageSize())
+      const label = canvasOriginLabel('upload') ?? '上传素材'
+      let placed = 0
+      for (const file of accepted) {
+        const dataUrl = await readImageDataUrl(file)
+        if (dataUrl === undefined) {
+          showAssetNotice(`「${file.name}」读不出来，没有上传。`)
+          continue
+        }
+        const result = await api.writeCanvasAsset(dataUrl)
+        if (!result.ok) {
+          showAssetNotice(`「${file.name}」没存上：${result.message}`)
+          continue
+        }
+        // Re-read the board each round: the id has to miss what the previous
+        // round just added. `centeredImageCard` owns the sizing, so a slot here
+        // is only a centre point.
+        const boardNow = store.getSnapshot().board
+        if (boardNow === undefined) return
+        const offset = (placed - (accepted.length - 1) / 2) * (CANVAS_NEW_IMAGE_SIZE + UPLOAD_GAP_PX)
+        const image = result.value.image
+        store.addCards([centeredImageCard({
+          file: image.file,
+          source: 'canvas',
+          width: image.width,
+          height: image.height,
+          model: label,
+          prompt: label,
+          origin: 'upload',
+        }, { x: centre.x + offset, y: centre.y }, unusedCardId(boardNow))])
+        placed += 1
+      }
+      if (placed > 0) await store.saveNow()
+    } finally {
+      setBusy(false)
+    }
+  }, [api, showAssetNotice, stageSize, store])
 
   /**
    * Selecting a card also lifts it to the front.
@@ -639,7 +738,7 @@ async function loadBurnedSize(dataUrl: string): Promise<{ dataUrl: string; width
         >
           图层
         </Button>
-        <Button onClick={pruneAssets} title="删掉板上没有任何卡片引用的画布图片（标注/裁剪合成图）">清理无用图片</Button>
+        <Button onClick={pruneAssets} title="删掉板上没有任何卡片引用的画布图片（标注/裁剪合成图、上传的图片）">清理无用图片</Button>
         <Button
           variant="primary"
           onClick={() => {
@@ -661,7 +760,9 @@ async function loadBurnedSize(dataUrl: string): Promise<{ dataUrl: string; width
       <div
         className={css.surface}
         ref={surfaceRef}
+        data-dsh-seework-board=""
         onPointerDown={beginPan}
+        onContextMenu={openBoardMenu}
         style={{ cursor: gestureRef.current?.kind === 'pan' ? 'grabbing' : 'default' }}
       >
         <div
@@ -761,6 +862,49 @@ async function loadBurnedSize(dataUrl: string): Promise<{ dataUrl: string; width
               }}
             />
           )}
+
+        {/* The board's own menu. HTML over the board, in stage coordinates, so
+            it keeps its size at every zoom and never scales with the world. */}
+        {boardMenu === undefined
+          ? null
+          : (
+            <div
+              className={css.boardMenu}
+              data-dsh-seework-board-menu=""
+              role="group"
+              aria-label="画布菜单"
+              style={{ left: boardMenu.x, top: boardMenu.y }}
+              onPointerDown={event => { event.stopPropagation() }}
+            >
+              <button
+                type="button"
+                className={css.boardMenuItem}
+                onClick={() => {
+                  setBoardMenu(undefined)
+                  uploadInputRef.current?.click()
+                }}
+              >
+                上传图片素材
+              </button>
+            </div>
+          )}
+
+        {/* The picker the menu's upload item opens. It stays out of the layout
+            and out of the pointer's way; only that item clicks it. */}
+        <input
+          ref={uploadInputRef}
+          className={css.uploadInput}
+          data-dsh-seework-upload-input=""
+          type="file"
+          accept="image/png,image/jpeg"
+          multiple
+          onChange={event => {
+            const picked = [...(event.target.files ?? [])]
+            // Clearing it lets the same file be picked twice in a row.
+            event.target.value = ''
+            void uploadImages(picked)
+          }}
+        />
       </div>
 
       {/* The annotation editor takes the whole panel: the picture is the work
@@ -783,7 +927,7 @@ async function loadBurnedSize(dataUrl: string): Promise<{ dataUrl: string; width
             }}
           />
         )}
-      {busy ? <p className={css.notice}>正在保存这张图…</p> : null}
+      {busy ? <p className={css.notice}>正在保存图片…</p> : null}
 
       {pickerOpen
         ? (

@@ -337,10 +337,23 @@ export type CanvasCardSource = 'library' | 'canvas'
  *
  * `chat` and `panel` mirror the material library's own `source` (the library
  * records whether a generation was asked for in a conversation or from the
- * panel); `annotation` and `crop` are composites this board made itself. Cards
- * written before this field existed have none, and the viewer infers one.
+ * panel); `annotation` and `crop` are composites this board made itself, and
+ * `upload` is a file the user brought from their own machine. Cards written
+ * before this field existed have none, and the viewer infers one.
  */
-export type CanvasCardOrigin = 'chat' | 'panel' | 'annotation' | 'crop'
+export type CanvasCardOrigin = 'chat' | 'panel' | 'annotation' | 'crop' | 'upload'
+
+/** Every origin a card may carry, so validators cannot drift from the type. */
+export const CANVAS_CARD_ORIGINS: readonly CanvasCardOrigin[] = ['chat', 'panel', 'annotation', 'crop', 'upload']
+
+/**
+ * Whether a stored value is an origin this build knows.
+ * @param value - the value read off a stored document.
+ * @returns true when it is one of them.
+ */
+export function isCanvasCardOrigin(value: unknown): value is CanvasCardOrigin {
+  return typeof value === 'string' && (CANVAS_CARD_ORIGINS as readonly string[]).includes(value)
+}
 
 /**
  * Human label for one origin, for the card badge.
@@ -352,6 +365,7 @@ export function canvasOriginLabel(origin: CanvasCardOrigin | undefined): string 
   if (origin === 'panel') return '面板生成'
   if (origin === 'annotation') return '标注合成'
   if (origin === 'crop') return '裁剪合成'
+  if (origin === 'upload') return '上传素材'
   return undefined
 }
 

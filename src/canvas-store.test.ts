@@ -69,6 +69,16 @@ describe('normalizeCard', () => {
     expect(normalizeCard(null)).toBeUndefined()
   })
 
+  it('keeps a known origin and clears one it does not know', () => {
+    // Every origin the viewer can label, uploads included: the host is the one
+    // that decides what a stored board may say, and it must not drop the ones
+    // this build writes.
+    for (const origin of ['chat', 'panel', 'annotation', 'crop', 'upload'] as const) {
+      expect(normalizeCard(imageCard({ source: 'canvas', origin }))?.origin).toBe(origin)
+    }
+    expect(normalizeCard({ ...imageCard({ source: 'canvas' }), origin: 'something-else' })?.origin).toBeUndefined()
+  })
+
   it('drops an image card with no file (nothing to render)', () => {
     expect(normalizeCard({ id: 'a', kind: 'image' })).toBeUndefined()
     expect(normalizeCard({ id: 'a', kind: 'image', file: '' })).toBeUndefined()

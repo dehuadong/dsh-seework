@@ -15,6 +15,7 @@ import path from 'node:path'
 import { CANVAS_MAX_BOARDS, CANVAS_MAX_CARDS, CANVAS_ZOOM_MAX, CANVAS_ZOOM_MIN } from './canvas-limits.ts'
 import { CANVAS_FILE_PATTERN } from './canvas-assets.ts'
 import { libraryDataRoot } from './library.ts'
+import { isCanvasCardOrigin } from './protocol.ts'
 import type { CanvasCard, CanvasDocument, CanvasListResult, CanvasSummary, CanvasViewport } from './protocol.ts'
 
 
@@ -107,9 +108,7 @@ export function normalizeCard(value: unknown): CanvasCard | undefined {
     // Absent means the material library, which is what every board written before
     // canvas-owned assets (annotations, crops) already means.
     card.source = raw.source === 'canvas' ? 'canvas' : 'library'
-    card.origin = raw.origin === 'chat' || raw.origin === 'panel' || raw.origin === 'annotation' || raw.origin === 'crop'
-      ? raw.origin
-      : undefined
+    card.origin = isCanvasCardOrigin(raw.origin) ? raw.origin : undefined
     if (typeof raw.model === 'string') card.model = raw.model.slice(0, 200)
     if (typeof raw.prompt === 'string') card.prompt = raw.prompt.slice(0, 4000)
   } else {
