@@ -59,7 +59,7 @@
 
 ### Issue tracker
 
-提案与工作项存放在 GitHub Issues（`dehuadong/dsh-seework`，该仓库尚未创建、本目录也还不是它的 clone，操作时显式 `gh -R`）。见 [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md)。
+提案与工作项存放在 GitHub Issues（`dehuadong/dsh-seework`）。本目录就是该仓库的 clone，`origin` 指向 `git@github.com:dehuadong/dsh-seework.git`，正常 `git push` 即可；`gh` 子命令因为仓库归属不在当前目录的远端推断范围内，仍要显式 `-R dehuadong/dsh-seework`。见 [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md)。
 
 ### Triage labels
 
@@ -87,6 +87,6 @@
 
 ## GUI 核对
 
-装进 `dsh web` profile 后逐面要核的东西（选择器、断言、哪些零成本、哪些要备份还原）在 [`docs/gui-verification.md`](docs/gui-verification.md)。
+插件跑在**桌面客户端的 `desktop` profile** 里；逐面要核的东西（选择器、断言、哪些零成本、哪些要备份还原）以及桌面客户端与临时实例的分工，在 [`docs/gui-verification.md`](docs/gui-verification.md)。
 
 **起临时实例或收工前先读它的「临时实例」一节**：那里的回收按**端口**定位进程，不许按进程名批量杀——`Get-Process chrome | Stop-Process` 会关掉用户正在用的浏览器，真实发生过。

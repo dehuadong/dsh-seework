@@ -1,26 +1,62 @@
 # dsh-seework GUI 核对
 
-把插件装进 `dsh web` profile 后，逐面核对它在真实 GUI 里的行为。本文件只写**怎么核**（选择器、断言、成本、什么时候要备份还原）；每处行为**为什么**是那样实现的、以及它来自哪次用户反馈，见 [`architecture.md`](architecture.md)——那里是那些叙述的唯一位置，本文件不重复。
+把插件装进**桌面客户端的 `desktop` profile** 后，逐面核对它在真实 GUI 里的行为。本文件只写**怎么核**（选择器、断言、成本、什么时候要备份还原）；每处行为**为什么**是那样实现的、以及它来自哪次用户反馈，见 [`architecture.md`](architecture.md)——那里是那些叙述的唯一位置，本文件不重复。
+
+**核对在哪儿做**：逐面核对用的是**临时 `dsh web` 实例 + 无头 Chrome**（`desktop` profile 由 Electron 独占，见下节）。两边加载的是同一份 bundle，界面行为一致。
 
 命令入口（typecheck / test / build / smoke / sync / probe / verify-live）见 [`../AGENTS.md`](../AGENTS.md)。
 
 ## 临时实例：起法与收法（踩过坑）
 
-自己起实例做端到端核对时，**换端口 + 不要自动开浏览器**；收工按**端口**回收：
+自己起实例做端到端核对时，**换端口 + 不要自动开浏览器 + 自己的 `DSH_HOME`**；收工按**端口**回收：
 
 ```powershell
-# 起：独立端口，--no-open 不弹用户自己的浏览器
-Start-Process dsh.cmd -ArgumentList @("web","--port","3299","--no-open")
+# 起：独立端口、--no-open、独立的 DSH_HOME（不去碰用户真实 profile）
+$env:ELECTRON_RUN_AS_NODE="1"
+$env:DSH_HOME="<工作区>\.tmp-live\home"          # 先 dsh plugin --profile see add <本插件> 装进去
+& "C:\Users\MyPC\AppData\Local\Programs\DeepSeek Harness\DeepSeek Harness.exe" `
+  "C:\Users\MyPC\AppData\Local\Programs\DeepSeek Harness\resources\app.asar\dsh\node_modules\@deepseek-ai\dsh\lib\bin.js" `
+  see --port 3299 --no-open
 
 # 收：按端口定位唯一占用者，只停它
 Get-NetTCPConnection -LocalPort 3299 -State Listen | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
 ```
 
+桌面客户端把 dsh 打包在 `resources/app.asar` 里，没有独立的 `dsh.cmd`，所以起实例要显式跑 asar 里那份 `bin.js`（上一条命令）。宿主日志重定向到文件后再读，别指望它在终端里刷。
+
 三条硬性纪律：
 
 1. **不许按进程名批量杀**。`Get-Process chrome | Stop-Process -Force` 会把用户正在用的 Google 浏览器一起关掉——真实发生过，用户的标签页会丢。同理不要批量杀 `node`。
-2. **只杀外层启动器不等于收工**。`Start-Process dsh.cmd` 返回的 PID 是外壳，真正监听端口的是它拉起的 node 子进程；外壳死了端口还在 LISTENING。要么按端口找 PID，要么确认子进程也被收回。
+2. **只杀外层启动器不等于收工**。拿到手的那个 PID 未必是监听端口的那个——启动器会拉起子进程，外层死了端口还在 LISTENING。要么按端口找 PID，要么确认子进程也被收回。
 3. **无头浏览器要点名自己那个**。给它独立的 `--user-data-dir` 和 `--remote-debugging-port`，收工时按那个调试端口定位 PID；收工后逐个端口用 TCP 直连确认已 closed（不能只看 HTTP 有没有响应），并确认用户自己的端口（GUI 3080、服务端 8080/8081）仍在。
+
+## 桌面客户端与临时实例的分工
+
+插件的正式家是**桌面客户端的 `desktop` profile**。两件事必须分清，否则会白折腾：
+
+- **`desktop` profile 由 Electron 独占**：`dsh plugin --profile desktop …` 被拒（`profile "desktop" is managed exclusively by the Electron application`）。装 / 卸 / 启停只能走 `plugin_manager` 工具或客户端的插件页。
+- **CDP 脚本核对不在 `desktop` profile 上做**：无头 Chrome 要连的是一个能用 `--port` 起的实例，所以逐面核对仍走临时 `dsh web` 实例。两边跑同一份 bundle，行为一致；差别只在 profile 的安装方式与「谁有权改 profile」。
+
+桌面客户端上特有的行为：
+
+| 事项 | 实际行为 |
+| --- | --- |
+| 新 bundle 怎么生效 | **重启 DeepSeek Harness**。宿主侧返回 `application: restart-required`，渲染进程跑的还是启动时那份客户端 bundle |
+| 有没有刷新页面的入口 | **没有**。`main.js` 的 `setApplicationMenu` 把 reload 两项写在 `...development ? [...] : []` 里，正式构建拿到空数组，`Ctrl+R` 也没绑定 |
+| 插件管理入口 | 客户端「设置 → 插件」页面，或 `plugin_manager` 工具（`install_bundle` / `remove_bundle` / `set_plugin`） |
+| 就近确认装上了什么 | `<profile>/node_modules/dsh-seework/package.json` 的 `version`、profile `package.json` 的依赖声明——两者都可能滞后于「刚点过更新」的直觉 |
+
+**核对更新链路**（零成本，但别拿 `desktop` profile 练手）：
+
+1. 在临时实例上把 profile 的依赖声明改成版本范围、装一份**较旧**的版本，`node_modules` 里那份 `package.json` 的 `version` 也改成旧号——这样 `kind` 才会是 `registry` 且真的「有新版可用」。
+2. `POST /api/dsh-seework/update/status` → 断言 `{current, latest, updateAvailable:true}`。
+3. `POST /api/dsh-seework/update/apply` → 断言 `{started:true, to:"<latest>"}`。
+4. 立刻读 `<profile>/pnpm-workspace.yaml` → 断言 `minimumReleaseAgeExclude` 下多了 `dsh-seework@<latest>`。
+5. 等几十秒再读 `node_modules/dsh-seework/package.json` 的 `version` → 断言已变成新版本，依赖声明同步。
+
+**刚发布的版本会被供应链门槛挡住**：pnpm 默认拒绝安装发布不满 24 小时的版本（`ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION`）。插件在 `apply` 时会自动把目标版本写进 `minimumReleaseAgeExclude` 来放行（见 [设计](design/2026-09-29-npm-distribution-and-in-plugin-update.md)）；手工 `pnpm add` 一个刚发的版本则要自己带 `--config.minimumReleaseAge=0` 或先写白名单，否则会以为「装不上」是插件的毛病。
+
+**并发跑 pnpm 会报 `EPERM … rename '.pnpm-lock.yaml.<随机>.tmp'`**：同一个 profile 目录里同时有两个 pnpm（例如一边让插件安装、一边手工执行）就会撞这个，不是更新链路的缺陷。核对时让插件自己跑，别在旁边补一条手工 `pnpm add`。
 
 ## 核对前须知
 
@@ -49,6 +85,11 @@ Get-NetTCPConnection -LocalPort 3299 -State Listen | ForEach-Object { Stop-Proce
   - 卡片**只在 `kind === 'native'` 时显示按钮**，否则用 `message` 说明原因（接缝的规矩：驱动不了的能力就把入口藏起来）。
 - 核对（**零成本**，但**会在用户屏幕上闪一下文件夹窗口、约 1.2 秒后自己收掉**）：临时实例 + 无头 Chrome → 探测接口断言 `kind === 'native'`（这一步**不开窗口**）→ 设置 → `SeeWork` → 断言按钮在位 → 在页面里用 `AbortController` 调 `settings/pick-directory`、1.2 秒后 `abort()` → 断言请求以 `AbortError` 结束、`dataDir` 没被写、之后探测仍 `native`。
 - **"真的选中一个文件夹"只能由人完成**（原生对话框无法脚本点选）。那一段由 `SettingsCard.test.tsx` 的假 API 覆盖：选中会写 `dataDir` 并提示、取消不写、`browse` / `none` 无按钮、「恢复默认」只在自定义后出现并 `unset('dataDir')`。
+
+- **卡片底部「版本」区**：`[data-dsh-seework-version]` 是当前版本，「检查更新」是常态按钮，查到新版时多出「更新到 x.y.z」；点下去变「更新中…」，完成后那行提示写**重启 DeepSeek Harness**（`[data-dsh-seework-version-state="done"]`）。本地目录安装走另一条路：出现 `[data-dsh-seework-version-kind="local"]` 的说明，且**没有更新按钮**。
+  - 核对（**零成本**）：临时实例上断言 `[data-dsh-seework-version]` 有值；`file:` 安装下 `[data-dsh-seework-version-kind="local"]` 存在且页面里没有「更新到」按钮；registry 安装下该元素不存在。
+- **有新版时右下角出现提示条**：`[data-dsh-seework-update-notice]`，落在右下角、**插件悬浮按钮 dock 的上方**（dock 自己占着 `right:16 bottom:16`），带「更新」与「关闭」。
+  - 核对（**零成本**）：启动后约 4 秒才查一次，**没有新版时整条不渲染**——这是要点，不该先闪一条可能不成立的提示；同一次核对里点「关闭」后它应消失，且全程没有任何安装动作。
 
 ## 对话里的图
 
