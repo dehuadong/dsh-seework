@@ -100,6 +100,13 @@ describe('registerSidebarTabs', () => {
     expect(harness.bodies.map(body => body.key)).toEqual(['dsh-seework/library', 'dsh-seework/canvas'])
     expect(harness.titles.map(title => title.key)).toEqual(['dsh-seework/library', 'dsh-seework/canvas'])
     expect(typeof harness.types[0]!.title).toBe('function')
+    // The guide page is the way in on a screen with no session header, so the
+    // capsule each type contributes is part of this registration's contract.
+    const guides = harness.types.map(type => type.guide as Array<Record<string, unknown>>)
+    expect(guides.map(entries => entries.length)).toEqual([1, 1])
+    expect(guides.map(entries => entries[0]!.order)).toEqual([40, 50])
+    expect(guides.map(entries => (entries[0]!.title as () => string)())).toEqual(['素材库', '画布'])
+    expect(guides.every(entries => typeof entries[0]!.description === 'function')).toBe(true)
     // The caller retires its floating launchers only when both tabs landed.
     expect(result.tabsAvailable).toBe(true)
     expect(typeof result.dispose).toBe('function')

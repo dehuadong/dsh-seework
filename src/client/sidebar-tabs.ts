@@ -33,17 +33,45 @@ export const CANVAS_TAB_ID = 'dsh-seework/canvas'
 export const LIBRARY_TAB_KIND = 'seework-library'
 export const CANVAS_TAB_KIND = 'seework-canvas'
 
+/**
+ * One surface's guide entry: the capsule the right column's guide page offers.
+ *
+ * Picking that capsule opens the type as a page in the capsule's place, which is
+ * what makes this the way in on a shell whose home screen has no session header
+ * to put a button in.
+ */
+export interface SeeWorkGuideEntry {
+  /** Entry identity inside this tab type; the registry requires it. */
+  id: string
+  /** Ascending position among every registered type's entries. */
+  order: number
+  /** One line under the capsule's title; the guide drops it when the list grows long. */
+  description: string
+}
+
 /** The two surfaces as tab types. */
 export interface SeeWorkTabTarget {
   id: string
   kind: string
   title: string
+  /** Guide-page capsule, offered beside the shipped cards. */
+  guide: SeeWorkGuideEntry
 }
 
 /** Both tab types in strip order. */
 export const TAB_TARGETS: readonly SeeWorkTabTarget[] = [
-  { id: LIBRARY_TAB_ID, kind: LIBRARY_TAB_KIND, title: '素材库' },
-  { id: CANVAS_TAB_ID, kind: CANVAS_TAB_KIND, title: '画布' },
+  {
+    id: LIBRARY_TAB_ID,
+    kind: LIBRARY_TAB_KIND,
+    title: '素材库',
+    guide: { id: 'library', order: 40, description: '查看用 SeeWork 生成过的图片' },
+  },
+  {
+    id: CANVAS_TAB_ID,
+    kind: CANVAS_TAB_KIND,
+    title: '画布',
+    guide: { id: 'canvas', order: 50, description: '把生成过的图片摆到画布上' },
+  },
 ]
 
 /** The stores the tab bodies render from (the same ones the fallback panels use). */
@@ -140,6 +168,16 @@ export function registerSidebarTabs(ctx: ClientContext, stores: TabStores): {
         id: target.id,
         kind: target.kind,
         title: () => target.title,
+        // The guide page's capsule. Without it the column has no door into
+        // SeeWork on a screen that shows no session header (the home screen):
+        // the floating dock is the only way in, and the canvas it opens is the
+        // plugin's own full-viewport overlay rather than a page in this column.
+        guide: [{
+          id: target.guide.id,
+          order: target.guide.order,
+          title: () => target.title,
+          description: () => target.guide.description,
+        }],
       })
       if (dispose !== undefined) registered += 1
       return dispose
