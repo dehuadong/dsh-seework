@@ -36,9 +36,12 @@ import {
   SETTINGS_API,
   SEEWORK_SETTINGS_NAMESPACE,
   TASK_API,
+  UPDATE_API,
   isImageMedia,
   type GenerateRequest,
+  type UpdateStart,
 } from './protocol.ts'
+import { PACKAGE_NAME, UPDATE_SPEC, checkForUpdate, exemptVersion, latestVersionFrom, profileDirectory, readInstallKind, readOwnVersion, registryOf, type UpdateHost } from './update.ts'
 
 /** Cap on JSON request bodies (edit requests carry data-URL reference images). */
 const MAX_JSON_BODY_BYTES = 48 * 1024 * 1024
@@ -80,6 +83,15 @@ export interface SeeWorkRoutesDeps {
    * pretending a round ran.
    */
   catalogRefresh?: () => CatalogRefresher | undefined
+  /**
+   * The host's plugin manager, probed **per request**.
+   *
+   * Absent on a host that composes none, and the update routes then answer
+   * "unavailable" rather than pretending an install could be started. The probe
+   * is also what keeps this plugin loadable on 0.1.x, where the service is
+   * shaped differently.
+   */
+  updateHost?: () => UpdateHost | undefined
 }
 
 /** The attachment-store face the tool-result image route needs. */
@@ -446,6 +458,55 @@ export function makeRoutes(deps: SeeWorkRoutesDeps): WebRoute[] {
       const task = deps.runtime.cancel(taskId)
       if (task === undefined) return fail(res, 404, 'task_not_found', '找不到该生图任务。')
       ok(res, { task })
+    }),
+
+    // ---- self-update (published installs only) ----------------------------
+    route('exact', UPDATE_API.status, async (req, res) => {
+      if (req.method !== 'POST') return fail(res, 405, 'method_not_allowed', '请使用 POST。')
+      // Read per request, not once at mount: the running version comes from the
+      // packaged manifest and the install kind from the profile, so both change
+      // the moment an update lands.
+      const current = readOwnVersion()
+      const kind = readInstallKind(profileDirectory())
+      ok(res, await checkForUpdate({ host: deps.updateHost?.(), current, kind }))
+    }),
+
+    route('exact', UPDATE_API.apply, async (req, res) => {
+      if (req.method !== 'POST') return fail(res, 405, 'method_not_allowed', '请使用 POST。')
+      const host = deps.updateHost?.()
+      if (host === undefined) return fail(res, 503, 'unavailable', '宿主没有提供插件管理服务。')
+      if (readInstallKind(profileDirectory()) === 'local') {
+        return fail(res, 409, 'local_install', '这是本地目录安装，更新请用 pnpm build && pnpm sync。')
+      }
+      // Resolve the target version first. The install needs an exact spec rather
+      // than `@latest` — and that exact version is what has to be exempted from
+      // pnpm's release-age gate, which otherwise refuses anything published less
+      // than 24 hours ago and quietly leaves the old version in place.
+      let target: string | undefined
+      try {
+        target = await latestVersionFrom({
+          registry: registryOf(await host.registries()),
+          packageName: PACKAGE_NAME,
+        })
+        await exemptVersion(profileDirectory(), PACKAGE_NAME, target)
+      } catch (error) {
+        // Not fatal here: fall back to `@latest` and let pnpm report its own
+        // refusal through the install path.
+        console.warn('[dsh-seework] could not resolve or exempt the target version:', error)
+      }
+      // Answer first, install after. Applying the install re-composes the
+      // profile and tears these routes down, so a handler that awaited it could
+      // not deliver its own response — the browser would see a dropped
+      // connection and could not tell that from a real failure.
+      ok(res, { started: true, ...target === undefined ? {} : { to: target } } satisfies UpdateStart)
+      setTimeout(() => {
+        void host.installBundle(target === undefined ? UPDATE_SPEC : `${PACKAGE_NAME}@${target}`).catch((error: unknown) => {
+          // Nobody is left to receive this: the install unloaded this plugin, and
+          // with it the route that started it. The host log is the only place the
+          // reason can land.
+          console.warn('[dsh-seework] self-update failed:', error)
+        })
+      }, 0)
     }),
 
     // ---- material library ------------------------------------------------

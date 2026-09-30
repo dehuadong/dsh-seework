@@ -27,6 +27,7 @@ import { DEFAULT_API_URL, SEEWORK_SETTINGS_NAMESPACE } from './protocol.ts'
 import type { ModelConfig } from './protocol.ts'
 import { summarizeSavedModels } from './model-summary.ts'
 import { GenerationRuntime } from './generation-runtime.ts'
+import type { UpdateHost } from './update.ts'
 import { catalogUrl, gatewayUrl } from './engine.ts'
 import { setLibraryDataRoot } from './library.ts'
 import { makeRoutes, type SettingsSeam } from './routes.ts'
@@ -199,6 +200,17 @@ export function guidanceFor(config: EffectiveConfig): string {
 export type RefresherFactory = (deps: CatalogRefresherDeps) => CatalogRefresher
 
 /**
+ * The presentation-policy seam of the settings service (DSH 0.2 and later).
+ *
+ * `configure({ auto: false }, owner)` records that the owning plugin renders its
+ * own page, so the host does not additionally project a form from the entry's
+ * Config. Absent on 0.1.x, which projects nothing either way.
+ */
+interface SettingsPresentationFace {
+  configure(presentation: { auto?: boolean }, owner?: unknown): () => void
+}
+
+/**
  * Mount the settings section, routes, agent tools, and announcement.
  * @param ctx - host plugin context carrying webServer/systemPrompt/tools.
  * @param config - the composition entry (schema defaults + fallback source).
@@ -285,7 +297,23 @@ export function apply(ctx: Context, config?: SettingsEntry, makeRefresher: Refre
   // immediately, so registering out here would check for the service before it
   // has attached and quietly register nothing at all.
   ctx.inject(['settings'], (sctx) => {
-    sctx.effect(() => mountRoutes(sctx, read, runtimeOf, refresherOf), 'dsh-seework: routes')
+    // This plugin ships its own settings page, so a host that can project a
+    // form from the entry's Config must not also do so: two entries for one
+    // plugin is the same clutter the client half avoids when it prefers the nav
+    // page over the Plugins tab. `configure` is the 0.2-and-later seam and is
+    // absent on 0.1.x, where nothing is auto-generated anyway.
+    const presentation = sctx.get('settings') as unknown as SettingsPresentationFace | undefined
+    if (typeof presentation?.configure === 'function') {
+      sctx.effect(
+        () => presentation.configure!({ auto: false }, ctx.fiber),
+        'dsh-seework: settings presentation',
+      )
+    }
+
+    sctx.effect(
+      () => mountRoutes(sctx, read, runtimeOf, refresherOf, () => probeUpdateHost(sctx)),
+      'dsh-seework: routes',
+    )
 
     // The refresher itself is plugin state (it needs the settings write seam, and
     // the card's route reads it per request), so the fiber owns only its teardown.
@@ -365,11 +393,32 @@ export function apply(ctx: Context, config?: SettingsEntry, makeRefresher: Refre
 }
 
 /**
+ * The host's plugin manager, when this host composes one.
+ *
+ * Probed rather than injected, and structurally rather than by type: the service
+ * is optional, its shape differs between host generations, and an install that
+ * cannot update itself must still load. A missing service costs the two update
+ * routes only — they answer "unavailable" and the card hides the button.
+ *
+ * @param ctx - the context whose `pluginManager` may be attached.
+ * @returns the seam, or undefined when this host has none.
+ */
+function probeUpdateHost(ctx: Context): UpdateHost | undefined {
+  const service = (ctx as unknown as { get(name: string): unknown }).get('pluginManager')
+  if (service === null || service === undefined) return undefined
+  const candidate = service as Partial<UpdateHost>
+  if (typeof candidate.registries !== 'function' || typeof candidate.installBundle !== 'function') return undefined
+  return candidate as UpdateHost
+}
+
+/**
  * Register the route family with the host web server.
  *
  * @param ctx - the context whose `settings` and `webServer` are attached.
  * @param read - reads the live settings entry.
  * @param runtimeOf - the shared generation queue (created on first use).
+ * @param updateHostOf - the host's plugin manager, when it composes one (the
+ *   two self-update routes answer "unavailable" otherwise).
  * @param catalogRefreshOf - the automatic detection refresher, when the host has
  *   a settings provider (the two catalog routes answer "unavailable" otherwise).
  * @returns disposer removing every route.
@@ -379,6 +428,7 @@ export function mountRoutes(
   read: () => SettingsEntry,
   runtimeOf: () => GenerationRuntime,
   catalogRefreshOf?: () => CatalogRefresher | undefined,
+  updateHostOf?: () => UpdateHost | undefined,
 ): () => void {
   const seam = ctx.get('settings') as unknown as SettingsSeam | undefined
   // Defensive: the caller injects `settings` first, so this only fires if a
@@ -396,6 +446,7 @@ export function mountRoutes(
     // deployment without one must keep working — the card then hides the button.
     directoryPicker: () => (ctx as unknown as { get(name: string): unknown }).get('directoryPicker'),
     ...catalogRefreshOf === undefined ? {} : { catalogRefresh: catalogRefreshOf },
+    ...updateHostOf === undefined ? {} : { updateHost: updateHostOf },
   }).map(route => ctx.webServer.register(route))
   // The library path resolves per request, so a settings change needs no
   // re-registration; only the routes themselves are torn down here.

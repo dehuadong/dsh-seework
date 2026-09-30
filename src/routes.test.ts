@@ -874,7 +874,9 @@ describe('plugin metadata', () => {
     expect(plugin.inject).toContain('tools')
     expect(plugin.inject).toContain('webServer')
     expect(typeof plugin.Config).toBe('function')
-    const defaults = plugin.Config({})
+    // The exported schema is the volatile one the loader validates the profile
+    // entry with, so its resolved value arrives as a live reference.
+    const defaults = plugin.Config({}).get()!
     expect(defaults.apiUrl).toBe('http://127.0.0.1:8080/v1')
     expect(defaults.models).toEqual([])
     expect(defaults.enabled).toBe(true)

@@ -12,8 +12,9 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import type { SettingsNamespace, SettingsProvider } from '@deepseek-ai/dsh-settings'
-import z from 'schemastery'
+import { isVolatile } from '@deepseek-ai/cosmokit'
+import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
+import z from '@deepseek-ai/schemastery'
 import { modelSchema, normalizeModels } from './capability.ts'
 import { DEFAULT_API_URL, DEFAULT_ASPECT_RATIO, DEFAULT_OUTPUT_FORMAT, DEFAULT_SERVICE_URL, SEEWORK_SETTINGS_NAMESPACE, type ModelConfig } from './protocol.ts'
 
@@ -63,8 +64,20 @@ export interface Config {
  */
 export { DEFAULT_ASPECT_RATIO, DEFAULT_OUTPUT_FORMAT } from './protocol.ts'
 
-/** The plugin config schema (also the settings card's field contract). */
-export const Config: z<Config> = z.object({
+/**
+ * The plugin's field contract, without the live-reference marker.
+ *
+ * This is what tests and tooling validate a raw document against; the loader
+ * validates the entry with {@link Config} below, which is the same shape wrapped
+ * once more.
+ *
+ * The assertion is load-bearing, not decoration: this fork's `object()` helper
+ * leaves each field's mode generic in its output type (`SetRequired<Mode, true>`
+ * rather than the resolved `'defined'`), so an inferred schema no longer
+ * satisfies `z<Config>` even though it resolves to exactly that shape at
+ * runtime — the same schema this plugin shipped before the fork.
+ */
+export const ConfigShape = z.object({
   enabled: z.boolean().default(true),
   allowAgentGeneration: z.boolean().default(true),
   announceToAgent: z.boolean().default(true),
@@ -76,7 +89,24 @@ export const Config: z<Config> = z.object({
   defaultAspectRatio: z.string().default(DEFAULT_ASPECT_RATIO),
   outputFormat: z.string().default(DEFAULT_OUTPUT_FORMAT),
   dataDir: z.string().default(''),
-})
+}) as z<Config>
+
+/**
+ * The plugin config schema the loader validates the profile entry with (also the
+ * settings card's field contract).
+ *
+ * The trailing `.volatile()` is what makes these fields editable at all from
+ * DSH 0.2 onwards: that host projects a settings form **out of this schema** and
+ * admits only fields under a volatile node, so a schema without one yields an
+ * empty form and every write is refused with "has no volatile fields". The same
+ * marker is also how the plugin receives its values — the loader swaps one live
+ * reference in place instead of re-applying the plugin, which is what
+ * {@link installSettingsSection} unwraps.
+ *
+ * On 0.1.x the marker is inert (that host has no schema-projected forms and the
+ * section registration below owns the values), so the same schema serves both.
+ */
+export const Config = ConfigShape.volatile()
 
 /** Resolved runtime view of the settings the host half acts on. */
 export interface EffectiveConfig {
@@ -93,19 +123,49 @@ export interface EffectiveConfig {
   dataDir: string
 }
 
-/** Service face this module needs from the settings provider. */
+/**
+ * The one seam this module needs from a settings provider.
+ *
+ * Spelled structurally rather than as `SettingsProvider['installSection']`: the
+ * 0.1.x declaration is typed against that generation's schemastery, and this
+ * plugin builds its schema with the vendored `@deepseek-ai/schemastery` that
+ * carries `.volatile()`. The two are the same object at runtime, so the seam is
+ * described by the call this module makes and nothing else.
+ */
 interface SettingsProviderFace {
-  installSection: SettingsProvider['installSection']
+  installSection(owner: Context, ns: unknown, schema: unknown, entry: unknown, hooks: unknown): void
+}
+
+/**
+ * Read the current value out of whatever the host handed over.
+ *
+ * DSH 0.2 and later resolve a volatile schema to one live reference and swap the
+ * value in place, so the reference itself is the freshest answer on every call.
+ * Older hosts and bare compositions pass a plain object.
+ *
+ * @param value - the resolved config, possibly wrapped in a volatile reference.
+ * @returns the plain config.
+ */
+function readConfig(value: unknown): Config {
+  return (isVolatile(value) ? value.get() : value) as Config
 }
 
 /**
  * Bind the plugin to its settings section.
  *
- * While a settings provider is attached the section's resolved value is
- * authoritative and every commit re-notifies the caller; without a provider
- * (bare composition, tests) the composition entry itself is the source. The
- * namespace registration is an effect on the calling fiber, so unloading the
- * plugin removes both the section and its observers.
+ * Two host generations, one read seam:
+ *
+ *  - A host exposing `installSection` (DSH 0.1.x) keeps the section as the
+ *    authoritative source and re-notifies the caller on every commit.
+ *  - A host without it (DSH 0.2 onwards, where forms are projected from the
+ *    profile entry's own Config) has nothing to register: the value arrives as
+ *    a live reference, and there is no change notification to subscribe to
+ *    because the reference never goes stale.
+ *
+ * Either way the returned thunk answers a plain `Config`, so callers below are
+ * independent of which generation is in force. The namespace registration is an
+ * effect on the calling fiber, so unloading the plugin removes both the section
+ * and its observers.
  *
  * @param ctx - host plugin context.
  * @param entry - the composition entry used as the base layer and fallback.
@@ -117,15 +177,13 @@ export function installSettingsSection(
   entry: Config,
   hooks: { onChange: () => void },
 ): () => Config {
-  let current: () => Config = () => entry
+  let current: () => Config = () => readConfig(entry)
   ctx.inject(['settings'], (sctx) => {
     const provider = sctx.get('settings') as unknown as SettingsProviderFace | undefined
-    if (provider === undefined || typeof provider.installSection !== 'function') {
-      throw new TypeError('dsh-seework: the settings service does not expose installSection')
-    }
+    if (provider === undefined || typeof provider.installSection !== 'function') return
     provider.installSection(ctx, SeeWorkSettingsNamespace, Config, entry, {
-      setSource: (source) => {
-        current = source as () => Config
+      setSource: (source: unknown) => {
+        current = () => readConfig((source as () => unknown)())
         hooks.onChange()
       },
       onChange: hooks.onChange,

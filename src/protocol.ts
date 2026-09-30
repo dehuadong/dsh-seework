@@ -170,6 +170,47 @@ export const TASK_API = {
   cancel: '/api/dsh-seework/tasks/cancel',
 } as const
 
+/** Update discovery for a published install, and the install it triggers. */
+export const UPDATE_API = {
+  /** Read the running version, the registry's newest, and how this copy got here. */
+  status: '/api/dsh-seework/update/status',
+  /**
+   * Start installing the newest published version.
+   *
+   * Answers as soon as the install has been *started*, not when it finishes: the
+   * install re-composes the profile and tears this plugin's routes down, so a
+   * handler that waited for it could not deliver its own response.
+   */
+  apply: '/api/dsh-seework/update/apply',
+} as const
+
+/** How this copy of the plugin reached the profile. */
+export type InstallKind = 'registry' | 'local' | 'unknown'
+
+/** What the settings card renders in its version row. */
+export interface UpdateStatus {
+  /** The version running right now. */
+  current: string
+  /** The newest version the registry offers, when the check could read one. */
+  latest?: string
+  /** How this copy was installed; only `registry` is offered an update button. */
+  kind: InstallKind
+  /** Whether `latest` is strictly newer than `current`. */
+  updateAvailable: boolean
+  /** Why no answer was available, when there was none. */
+  error?: string
+}
+
+/** What the update route reports once it has started an install. */
+export interface UpdateStart {
+  /** Whether an install was actually started. */
+  started: boolean
+  /** The version being installed. */
+  to?: string
+  /** Why nothing was started. */
+  error?: string
+}
+
 /**
  * The local material library — every image this plugin generates is written
  * under the data root and indexed, which is what the sidebar library and the

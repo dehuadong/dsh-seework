@@ -27,6 +27,7 @@ import { mountLibraryPanel } from './library-panel.tsx'
 import { bindSeeWorkScope, type SeeWorkScope } from './settings-scope.ts'
 import { mountSettingsPanel, requestSurface } from './settings-panel.tsx'
 import { installChatImageZoom } from './chat-images.tsx'
+import { UpdateNotice } from './UpdateNotice.tsx'
 import { createCanvasAddFace, libraryFileFromUrl, setCanvasAddFace } from './canvas-add.ts'
 import { setComposerProbe, type ComposerDrafts } from './composer-draft.ts'
 import { registerToolCards } from './tool-card.tsx'
@@ -153,6 +154,11 @@ export function apply(ctx: ClientContext): void {
   // JSON on purpose (text-only models must keep working), so without this view a
   // finished generation shows up as a wall of JSON instead of its pictures.
   const disposeToolCards = registerToolCards(ctx)
+  // A published update is otherwise invisible: the version card lives on a
+  // settings page the user has to choose to open. This is a report only — the
+  // check runs once shortly after boot, nothing installs itself, and the strip
+  // is dismissible.
+  const disposeUpdateNotice = registerUpdateNotice(ctx, api)
   // Generated pictures are big; the transcript shows them capped and one click
   // opens the original in place. Independent of the view above, because the
   // assistant's own markdown reply renders images in the shell's markup.
@@ -194,6 +200,7 @@ export function apply(ctx: ClientContext): void {
     restoreControls()
     launchers.dispose()
     disposeToolCards()
+    disposeUpdateNotice()
     disposeChatImageZoom()
     restoreCanvasAdd()
     restoreComposer()
@@ -357,6 +364,50 @@ function registerHeaderLaunchers(ctx: ClientContext): {
   } catch (error) {
     console.warn('[dsh-seework] header utilities slot unavailable:', error)
     return { dispose: () => {}, controls }
+  }
+}
+
+/**
+ * Contribute the update notice to the shell's frame-wide overlay.
+ *
+ * Same degradation contract as the other optional slots here: a shell that does
+ * not declare `shell.overlay` never runs the callback, and the plugin keeps
+ * working with one surface fewer — the version card in settings still reports
+ * the update, which is where it lived before this existed.
+ *
+ * @param ctx - client root context (services: slots).
+ * @param api - the plugin route client.
+ * @returns the disposer.
+ */
+function registerUpdateNotice(ctx: ClientContext, api: SeeWorkApi): () => void {
+  try {
+    const slots = (ctx as unknown as { slots?: { inject?: unknown; register?: unknown } }).slots
+    if (slots === undefined || typeof slots.inject !== 'function' || typeof slots.register !== 'function') {
+      return () => {}
+    }
+    let dispose: (() => void) | undefined
+    const injected = slots.inject as (name: string, callback: () => void) => () => void
+    const stop = injected.call(slots, 'shell.overlay', () => {
+      try {
+        dispose = (slots.register as (options: unknown, component: unknown) => () => void).call(slots, {
+          name: 'shell.overlay',
+          id: NS,
+          order: 20,
+          // The slot declares no owner props, so this may be ignored; the
+          // component builds its own client when it is.
+          inject: () => ({ api }),
+        }, UpdateNotice as unknown as (props: { api?: SeeWorkApi }) => JSX.Element | null)
+      } catch (error) {
+        console.warn('[dsh-seework] overlay slot rejected the update notice:', error)
+      }
+    })
+    return () => {
+      dispose?.()
+      stop()
+    }
+  } catch (error) {
+    console.warn('[dsh-seework] overlay slot unavailable:', error)
+    return () => {}
   }
 }
 

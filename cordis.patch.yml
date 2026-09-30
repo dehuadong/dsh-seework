@@ -1,9 +1,13 @@
-# dsh-seework bundle patch: inserts the plugin row into the web profile roster.
+# dsh-seework bundle patch: inserts the plugin row into the profile roster.
+# The row id **is** the settings namespace the plugin addresses (`dsh-seework`):
+# since DSH 0.2 a profile entry's Config is what the settings forms project, and
+# every form is keyed by the entry id, so the two spellings have to agree or the
+# settings bridge finds no form to read or write.
 # The row is a bare plugin by package name: the host half (exports ".") runs in
 # the host process (settings section + SeeAI Hub proxy routes + agent image
 # tools), and the `dsh.client` declaration in package.json makes the browser
 # half (exports "./client", served at /plugins/dsh-seework/client.js) load in
 # the web GUI.
 - insert:
-    - id: seework
+    - id: dsh-seework
       name: 'dsh-seework'

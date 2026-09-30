@@ -1,0 +1,87 @@
+/**
+ * The update notice: a small frame-wide strip.
+ *
+ * Three constraints shaped this file.
+ *
+ * 1. **Placement.** The shell owns the bottom-left corner (sidebar controls) and
+ *    this plugin's own launcher dock already sits at `right: 16px; bottom: 16px`
+ *    (see `surfaces.module.css`). Anchoring here at `bottom: 16px` would cover
+ *    that dock, so the notice sits just above it — and higher still on narrow
+ *    viewports, where the dock stacks vertically and grows upward.
+ * 2. **Pointer events.** `shell.overlay` is deliberate click-through, so an
+ *    occupant has to opt back in or it can never be clicked.
+ * 3. **Tokens.** Only the names the live theme provider actually declares are
+ *    used. This plugin has shipped dark-on-dark buttons before by inventing a
+ *    plausible token name, because an unknown custom property falls back
+ *    silently instead of failing. The action is drawn as an outline button so it
+ *    needs no "text on accent" colour, which is not among the declared tokens.
+ */
+
+[data-dsh-seework-update-notice] {
+  position: fixed;
+  right: 16px;
+  bottom: 64px;
+  z-index: 60;
+  /* The overlay layer is click-through by design; this entry is not. */
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-l1, rgba(128, 128, 128, 0.35));
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-overlay, Canvas);
+  color: var(--dsw-alias-label-primary, CanvasText);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Narrow viewports: the dock stacks upward, so clear more of it. */
+@media (max-width: 720px) {
+  [data-dsh-seework-update-notice] {
+    bottom: 116px;
+  }
+}
+
+[data-dsh-seework-update-notice] .text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+[data-dsh-seework-update-notice] .current {
+  color: var(--dsw-alias-label-secondary, currentColor);
+}
+
+[data-dsh-seework-update-notice] .action {
+  flex: 0 0 auto;
+  padding: 3px 12px;
+  border: 1px solid var(--dsw-alias-brand-primary, currentColor);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-brand-primary, currentColor);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+[data-dsh-seework-update-notice] .action:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+[data-dsh-seework-update-notice] .dismiss {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary, currentColor);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+[data-dsh-seework-update-notice] .dismiss:hover {
+  color: var(--dsw-alias-label-primary, currentColor);
+}

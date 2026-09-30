@@ -15,6 +15,7 @@
 
 import { DEFAULT_ASPECT_RATIO, DEFAULT_OUTPUT_FORMAT, OUTPUT_FORMAT_FALLBACKS, UNIFIED_ASPECT_RATIOS, includesIgnoringCase, type DirectoryPickerStatus, type ModelConfig } from '../protocol.ts'
 import { Button, Pill, TextInput, Toggle } from './controls.tsx'
+import { VersionRow } from './VersionRow.tsx'
 import { useCallback, useEffect, useState } from 'react'
 import { SeeWorkApi } from './api.ts'
 import type { SeeWorkConfig, SeeWorkScope } from './settings-scope.ts'
@@ -376,6 +377,11 @@ export function SeeWorkSettingsCard({ scope, api }: SettingsCardFace): JSX.Eleme
             保存
           </Button>
         </div>
+      </section>
+
+      <section className={css.section}>
+        <h3 className={css.sectionTitle}>版本</h3>
+        <VersionRow api={api} />
       </section>
 
       {notice !== undefined

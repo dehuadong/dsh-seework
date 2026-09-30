@@ -1,14 +1,14 @@
 /**
  * Sync the built plugin into an installed DSH profile.
  *
- * Why this exists: `dsh plugin --profile web add file:E:/workspace/seeaihub/dsh-seework`
+ * Why this exists: `dsh plugin --profile desktop add file:E:/workspace/dsh-plugin/dsh-seework`
  * results in a **copy** in the profile's `node_modules`, not a symlink (pnpm's
  * `file:` install semantics). Rebuilding `lib/` therefore does not reach the
  * running host, and the symptom is nasty — the GUI keeps loading the old bundle
  * with no error at all.
  *
- *   node scripts/sync-to-profile.mjs                 # default profile: web
- *   node scripts/sync-to-profile.mjs --profile add   # a different profile
+ *   node scripts/sync-to-profile.mjs                 # default profile: desktop
+ *   node scripts/sync-to-profile.mjs --profile web   # a different profile
  *   node scripts/sync-to-profile.mjs --dry-run       # report, change nothing
  *
  * Exits non-zero when the profile is missing or a copy fails.
@@ -27,7 +27,7 @@ const ARTIFACTS = ['lib', 'cordis.patch.yml', 'package.json', 'README.md', 'docs
 
 /** Parse `--profile <name>` / `--dry-run`. */
 function parseArgs(argv) {
-  let profile = 'web'
+  let profile = 'desktop'
   let dryRun = false
   for (let index = 0; index < argv.length; index++) {
     const arg = argv[index]
@@ -112,4 +112,4 @@ if (built !== installed) {
   console.error('同步后文件不一致：请检查 profile 目录是否被其它进程占用。')
   process.exit(1)
 }
-console.log('同步完成：重启 dsh web 后生效。')
+console.log('同步完成：重启 DSH 后生效。')

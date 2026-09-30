@@ -23,7 +23,7 @@
  * is either a raw document entry or a catalog answer handed in by a caller.
  */
 
-import z from 'schemastery'
+import z from '@deepseek-ai/schemastery'
 import { effectiveImageCount, includesIgnoringCase, type DroppedParameter, type GenerateRequest, type ModelConfig } from './protocol.ts'
 
 /**

@@ -9,7 +9,7 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { CatalogRefreshOutcome, CatalogResult, DirectoryPickerStatus, ModelConfig } from '../protocol.ts'
+import type { CatalogRefreshOutcome, CatalogResult, DirectoryPickerStatus, ModelConfig, UpdateStart, UpdateStatus } from '../protocol.ts'
 import type { SeeWorkApi } from './api.ts'
 import type { ScopeSnapshot, SettingsOp, SeeWorkConfig, SeeWorkScope } from './settings-scope.ts'
 import { SeeWorkSettingsCard } from './SettingsCard.tsx'
@@ -93,6 +93,12 @@ function fakeApi(options: {
    * configured yet" one, which keeps every other test in this file quiet.
    */
   refresh?: Envelope<CatalogRefreshOutcome>
+  /**
+   * The version row's answer. Defaults to a **local** install: that is the state
+   * in which the row renders no update button, so tests that are not about
+   * updating are unaffected by it existing.
+   */
+  update?: Envelope<UpdateStatus>
 } = {}): SeeWorkApi & { picks: () => number; discoveries: () => number; refreshes: () => number } {
   const state = { picks: 0, discoveries: 0, refreshes: 0 }
   const api = {
@@ -116,6 +122,11 @@ function fakeApi(options: {
       state.picks += 1
       return { ok: true, value: options.pick ?? { path: '/data/seeaihub' } }
     },
+    updateStatus: async (): Promise<Envelope<UpdateStatus>> => options.update ?? {
+      ok: true,
+      value: { current: '0.1.0', kind: 'local', updateAvailable: false },
+    },
+    applyUpdate: async (): Promise<Envelope<UpdateStart>> => ({ ok: true, value: { started: true } }),
   }
   return Object.assign(api as unknown as SeeWorkApi, {
     picks: () => state.picks,

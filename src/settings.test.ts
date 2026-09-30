@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { defaultResolutionFor } from './capability.ts'
-import { Config as ConfigSchema, effectiveConfig, modelName, resolveModel, type Config } from './settings.ts'
+import { ConfigShape as ConfigSchema, effectiveConfig, modelName, resolveModel, type Config } from './settings.ts'
 import type { ModelConfig } from './protocol.ts'
 
 /** A seedream-like model: 2K/3K/4K, jpeg/png only, reference-capable. */

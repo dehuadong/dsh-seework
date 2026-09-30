@@ -11,6 +11,7 @@ import {
   LIBRARY_API,
   SETTINGS_API,
   TASK_API,
+  UPDATE_API,
   type CanvasAssetListing,
   type CanvasDocument,
   type CanvasImageRef,
@@ -25,6 +26,8 @@ import {
   type LibraryHead,
   type LibraryListResult,
   type PickDirectoryResult,
+  type UpdateStart,
+  type UpdateStatus,
 } from '../protocol.ts'
 
 /** One decoded bridge/route response. */
@@ -185,5 +188,27 @@ export class SeeWorkApi {
    */
   removeCanvasAsset(file: string): Promise<Envelope<{ removed: number; bytes: number }>> {
     return postJson<{ removed: number; bytes: number }>(CANVAS_API.removeAsset, { file })
+  }
+
+  /**
+   * Read the running version, the registry's newest, and how this copy got here.
+   *
+   * Never fails on a host without a plugin manager or with an unreachable
+   * registry: the answer carries an `error` and the card renders it.
+   */
+  updateStatus(): Promise<Envelope<UpdateStatus>> {
+    return postJson<UpdateStatus>(UPDATE_API.status, {})
+  }
+
+  /**
+   * Start installing the newest published version.
+   *
+   * Answers as soon as the install has been **started**, not when it finishes:
+   * applying it re-composes the profile and unloads this plugin, so there is
+   * nothing left to answer a later outcome. The caller polls `updateStatus`
+   * until the version changes.
+   */
+  applyUpdate(): Promise<Envelope<UpdateStart>> {
+    return postJson<UpdateStart>(UPDATE_API.apply, {})
   }
 }
