@@ -6,6 +6,8 @@
 > 输出直接呈现核心事实与动作，不打无意义流水账。
 > 具体业务任务，多实测少猜测，基于验证而非空想推进任务。
  
+插件的正式家是桌面客户端的 desktop profile
+
 本文件是 **dsh-seework 插件工程**（DSH 插件）的代理入口；本目录既是工程根也是本项目的**仓库管理根**，文档归属与标准见 [`docs/AGENTS.md`](docs/AGENTS.md)，跟踪器、triage 标签与领域文档约定见 [`docs/agents/`](docs/agents/)。本文件只记插件细则。
 
 ## 文档位置
@@ -18,6 +20,8 @@
 | 架构决定——**不可逆、值得留档**的取舍（含被否决的备选） | [`docs/adr/`](docs/adr/) | 
 | Agent 变更与决策记录 | [`.agents/notes/`](.agents/notes/README.md)（本工程） |
 | 对外接口契约（本插件消费） | **外部属主**：SeeAI Hub 仓库（`dehuadong/seeaihub`）的 `docs/api/`，不在本目录 |
+
+说明：`architecture.md`、`gui-verification.md`为历史开发文档，仅供参考历史做法，后期新开发不再记录,也不作为新的决策依据。
 
 ## 工程工作流
 
@@ -84,6 +88,20 @@
 | `pnpm sync` | 把构建产物同步进已安装的 profile——`file:` 装的是副本，不同步的话 GUI 会一直跑旧 bundle 而且不报错 |
 | `pnpm probe -- <base-url>` | 在一个真实宿主上核对：启动图里有没有本插件的客户端半边、bundle 能不能下载、是否误内联了 react、是否依赖了宿主模块表里没有的模块（token 走环境变量 `DSH_PROBE_TOKEN`） |
 | `pnpm verify-live -- <base-url> <api-key>` | 对着真实部署跑一遍设置桥写入 → 目录发现 → 提交生成 → 素材库读回（会消耗一次生成额度，余额不足时如实报出网关原文） |
+| `npx playwright test` | 在**真实 GUI** 里跑 `e2e/**/*.spec.ts`：临时实例、临时 `DSH_HOME`，由 `e2e/host.mjs` 起停；只覆盖 jsdom 观测不到的那层（客户端半边有没有加载、设置页有没有落进导航、入口在不在屏幕上）。零成本，不消耗生图额度 |
+
+## E2E 测试规则
+
+1. UI 行为的验证一律跑 `npx playwright test`；只跑一个文件就 `npx playwright test e2e/xxx.spec.ts`。宿主由 Playwright 自己起（`e2e/host.mjs`），不用先开终端。
+2. 每个新功能或 bugfix 都要带一个能复现它的 spec（`e2e/**/*.spec.ts`），和业务代码一起提交。**不要放进 `tests/`——那个目录被 `.gitignore` 忽略**。
+3. 脚本失败时按这个顺序走：先让脚本稳定复现问题（红）→ 读产物（`npx playwright show-trace`、失败截图、`test-results/*/error-context.md` 里的 ARIA 快照）→ 改业务代码 → 重跑同一条命令，直到绿。
+4. 选择器用 `getByRole` / `getByLabel`；插件的 DOM 锚点在 `e2e/support.ts` 的 `SELECTORS` 里，缺稳定锚点就在组件上补 `data-dsh-seework-*`，不用脆弱的 CSS 层级。
+5. 不写 UI 单元测试（按钮渲染、className、快照）；UI 行为由 spec 覆盖。业务逻辑、纯函数、接口契约仍由 `pnpm test` 覆盖。
+6. spec 只断言用户看得见的东西；故障产物（截图、trace、ARIA 快照）用来读失败原因，不用来当断言对象。
+7. **spec 不许消耗生成额度**：不写真发起的生图。要验生图链路用 `pnpm verify-live`，它会明确报出扣费。
+8. E2E 跑的是 `lib/` 这份构建产物，不是源码：`src/` 比 `lib/` 新时 `e2e/host.mjs` 会自动重建（`DSH_E2E_SKIP_BUILD=1` 可关）。这个构建不是逐字节可复现的，所以别把「跑完 E2E 后 `lib/` 的 mtime / 内容变了」当成缺陷。
+9. 临时实例与用户真实 `~/.dsh`、桌面客户端 `desktop` profile、真实素材库与画布完全隔离；临时目录在 `.tmp-e2e/`。实例随 Playwright 结束而退出，需要手工回收时**按端口**定位（`Get-NetTCPConnection -LocalPort 3311`），不许按进程名批量杀。
+10. 需要人眼判断的视觉细节（好不好看、间距对不对）列成清单交给人验；脚本不假装能替人判断。
 
 ## GUI 核对
 

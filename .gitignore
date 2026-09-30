@@ -3,8 +3,8 @@ __pycache__/
 *.pyc
 *.pyo
 venv/
-
-
+.artifacts/
+.data/
 # Rust
 target/
 # 验证用的独立构建目录（绕开运行中的服务对 target/ 二进制的占用；不入库）
@@ -32,3 +32,8 @@ tests/
 .DS_Store
 Thumbs.db
 .env.probe
+
+# E2E（临时实例的 DSH_HOME、trace 与报告）
+.tmp-e2e/
+test-results/
+playwright-report/
