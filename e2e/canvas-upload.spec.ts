@@ -9,6 +9,10 @@ import { expect, test } from './support.ts'
  * the entry is a right-click on the board itself — the picture is placed where
  * the user is looking, not through the toolbar.
  *
+ * The menu belongs to the board's own space: a right-click on a picture is about
+ * that picture, and offering "upload a picture" over an existing one reads as if
+ * the upload acted on it.
+ *
  * PNG and JPEG only, and that is a contract rather than a hint: the picker
  * filters, and the check behind it rejects anything else instead of writing it.
  *
@@ -44,11 +48,42 @@ async function cardIds(panel: Locator): Promise<string[]> {
     .evaluateAll(nodes => nodes.map(node => node.getAttribute('data-seework-card') ?? ''))
 }
 
-/** Right-click the board, take the upload item, and hand the picker a file. */
-async function uploadVia(app: Page, panel: Locator, file: { name: string; mimeType: string; buffer: Buffer }): Promise<void> {
-  await panel.locator('[data-dsh-seework-board]').click({ button: 'right' })
+/**
+ * A point on the board that no card (and no open menu) covers.
+ *
+ * Scanned rather than assumed: the throwaway home keeps the boards of earlier
+ * runs, and every upload lands in the middle of the view, so "the corner is
+ * empty" is not something a spec can rely on.
+ */
+async function emptyBoardPoint(panel: Locator): Promise<{ x: number; y: number }> {
+  const point = await panel.locator('[data-dsh-seework-board]').evaluate(surface => {
+    const box = surface.getBoundingClientRect()
+    for (let y = box.bottom - 12; y > box.top + 12; y -= 16) {
+      for (let x = box.left + 12; x < box.right - 12; x += 16) {
+        const hit = document.elementFromPoint(x, y)
+        if (hit === null) continue
+        if (hit.closest('[data-seework-card]') !== null) continue
+        if (hit.closest('[data-dsh-seework-board-menu]') !== null) continue
+        return { x: Math.round(x - box.left), y: Math.round(y - box.top) }
+      }
+    }
+    return undefined
+  })
+  if (point === undefined) throw new Error('画布上找不到没有被卡片盖住的位置')
+  return point
+}
+
+/** Right-click the board's own space, and return the menu that opens. */
+async function openBoardMenu(app: Page, panel: Locator): Promise<Locator> {
   const menu = panel.locator('[data-dsh-seework-board-menu]')
+  await panel.locator('[data-dsh-seework-board]').click({ button: 'right', position: await emptyBoardPoint(panel) })
   await expect(menu).toBeVisible()
+  return menu
+}
+
+/** Take the upload item and hand the picker a file. */
+async function uploadVia(app: Page, panel: Locator, file: { name: string; mimeType: string; buffer: Buffer }): Promise<void> {
+  const menu = await openBoardMenu(app, panel)
   // The native dialog is the real path: the item asks the hidden input to open.
   const chooser = app.waitForEvent('filechooser')
   await menu.getByRole('button', { name: '上传图片素材' }).click()
@@ -57,11 +92,21 @@ async function uploadVia(app: Page, panel: Locator, file: { name: string; mimeTy
 
 test('画布上右键：出现菜单，里面有「上传图片素材」', async ({ app }) => {
   const panel = await openCanvas(app)
-  await panel.locator('[data-dsh-seework-board]').click({ button: 'right' })
+  const menu = await openBoardMenu(app, panel)
+  await expect(menu.getByRole('button', { name: '上传图片素材' })).toBeVisible()
+})
+
+test('在图片上右键：不弹画布菜单——它属于板面空白处', async ({ app }) => {
+  const panel = await openCanvas(app)
+  await uploadVia(app, panel, { name: 'shot.png', mimeType: 'image/png', buffer: PNG_1X1 })
 
   const menu = panel.locator('[data-dsh-seework-board-menu]')
-  await expect(menu).toBeVisible()
-  await expect(menu.getByRole('button', { name: '上传图片素材' })).toBeVisible()
+  // Control: in this very test the menu does open over the board's own space.
+  await openBoardMenu(app, panel)
+
+  // New cards are stacked on top, so the one just uploaded is last in the DOM.
+  await panel.locator('[data-seework-card]').last().click({ button: 'right' })
+  await expect(menu).toHaveCount(0)
 })
 
 test('上传一张 PNG：板上多一张「上传素材」卡片，图片真的能读回来', async ({ app }) => {

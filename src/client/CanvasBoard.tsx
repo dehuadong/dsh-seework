@@ -540,8 +540,14 @@ async function loadBurnedSize(dataUrl: string): Promise<{ dataUrl: string; width
    * It lives on the board rather than in the toolbar because what it offers is
    * "put a picture here": the point under the cursor is what the user is
    * pointing at, and the picture lands in the middle of what they can see.
+   *
+   * It belongs to the board's own space, so a right-click on a picture is left
+   * alone: offering to upload a picture over an existing one reads as if the
+   * upload acted on that one. The platform's own menu (with 「图片另存为」) stays
+   * available there instead.
    */
   const openBoardMenu = (event: React.MouseEvent<HTMLDivElement>): void => {
+    if ((event.target as HTMLElement).closest('[data-seework-card]') !== null) return
     // The browser's own menu would otherwise cover this one.
     event.preventDefault()
     const rect = event.currentTarget.getBoundingClientRect()
