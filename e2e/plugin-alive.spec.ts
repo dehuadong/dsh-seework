@@ -13,16 +13,25 @@ import { SELECTORS, callRoute, expect, openSettings, test } from './support.ts'
  * material library, because the host runs on its own `DSH_HOME`.
  */
 
-test('首页上插件的客户端半边加载成功', async ({ app }) => {
+test('首页上插件的客户端半边加载成功，入口只有右栏开始页一处', async ({ app }) => {
   // The shell renders this when a plugin's browser half throws during boot. It
   // is a literal English string in the shell's boot page, not a translated one.
   await expect(app.getByText('Failed to load plugins')).toHaveCount(0)
 
-  // The floating launchers are the home screen's only way in: the conversation
-  // header does not exist without a session, so these must be on screen there.
-  await expect(app.locator(SELECTORS.dock)).toBeVisible()
-  await expect(app.locator(SELECTORS.libraryLauncher)).toBeVisible()
-  await expect(app.locator(SELECTORS.canvasLauncher)).toBeVisible()
+  // The right column's guide page is where these surfaces are reachable on a
+  // screen with no session header, so the corner launchers stand down: two entry
+  // points for two surfaces is one too many. They stay in the DOM (the header's
+  // buttons disappear with the session, so these have to be able to come back)
+  // and the empty dock is dropped, leaving nothing in the corner.
+  await expect(app.locator(SELECTORS.dock)).toHaveCount(0)
+  await expect(app.locator(SELECTORS.libraryLauncher)).toBeHidden()
+  await expect(app.locator(SELECTORS.canvasLauncher)).toBeHidden()
+
+  await app.getByRole('button', { name: '打开右侧边栏' }).click()
+  const panel = app.locator('[data-sidebar-right-panel]')
+  await expect(panel).toHaveAttribute('data-sidebar-right-open', 'true')
+  await expect(panel.locator('[data-sidebar-right-guide-entry="seework-library"]')).toBeVisible()
+  await expect(panel.locator('[data-sidebar-right-guide-entry="seework-canvas"]')).toBeVisible()
 })
 
 test('宿主半边在线：插件自己的路由应答', async ({ app }) => {

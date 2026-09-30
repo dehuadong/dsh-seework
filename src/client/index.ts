@@ -135,16 +135,26 @@ export function apply(ctx: ClientContext): void {
   // one. When the tabs do land, the launchers retire themselves.
   const disposeLibrary = mountLibrary(api, library)
   const disposeCanvas = mountCanvas(api, library, canvas)
-  // A floating launcher is hidden — never removed — while the conversation
-  // header shows its own buttons, and comes back the moment those go away (the
-  // home screen has no session, so it has no header). Removing them instead
-  // would leave a shell with no way in at all.
-  const stopPresence = onHeaderPresence(present => { setFloatingLaunchersHidden(present) })
+  // The two ways the floating launchers stand down, in one place: the
+  // conversation header showing its own buttons, or the right column taking
+  // these surfaces as pages (the guide page's capsules — see `sidebar-tabs.ts`).
+  // While neither holds they are the only way in, which is what keeps a shell
+  // without the header slot or without the column usable.
+  let headerButtonsPresent = false
+  let columnTakesSeeWork = false
+  const syncFloatingLaunchers = (): void => { setFloatingLaunchersHidden(headerButtonsPresent || columnTakesSeeWork) }
+  const stopPresence = onHeaderPresence(present => {
+    headerButtonsPresent = present
+    syncFloatingLaunchers()
+  })
   const attachTabs = registerSidebarTabsWhenReady(ctx, {
     library,
     canvas,
     entries: () => library.getSnapshot().entries,
     onNeedLibrary: () => { void library.refresh() },
+  }, () => {
+    columnTakesSeeWork = true
+    syncFloatingLaunchers()
   })
   // Top-right entry points. The floating dock stays even when the header slot
   // accepts them: an external plugin must remain reachable on a shell that does
@@ -237,12 +247,18 @@ function probeService<T>(ctx: ClientContext, name: string): T | undefined {
 /**
  * Show or hide the floating library/canvas launchers.
  *
- * Hidden rather than removed: they are the home screen's only way into the two
- * surfaces (the conversation header, and with it the header buttons, exists
- * only inside a session), so they have to be able to come back. The settings
- * button is left alone — its slot is the one a shell is most likely to lack.
+ * Hidden rather than removed: the conversation header's buttons come and go with
+ * the session, so a launcher that stood down for the header has to come back
+ * when the user leaves the session. For the same reason the launcher element is
+ * handed back to the dock rather than taken off it — the setup effect above owns
+ * that element and re-appends it.
  *
- * @param hidden - true while the conversation header's own buttons are on screen.
+ * The dock itself is removed once it holds no visible launcher, so standing down
+ * leaves nothing in the corner (an empty fixed box is still a box). The settings
+ * launcher is left alone — its slot is the one a shell is most likely to lack.
+ *
+ * @param hidden - true while these surfaces are reachable another way: the
+ *   conversation header's own buttons, or the right column taking them as pages.
  */
 function setFloatingLaunchersHidden(hidden: boolean): void {
   if (typeof document === 'undefined') return
@@ -251,6 +267,20 @@ function setFloatingLaunchersHidden(hidden: boolean): void {
       button.style.display = hidden ? 'none' : ''
     })
   }
+  if (hidden) dropEmptySurfaceDock()
+}
+
+/**
+ * Remove the shared dock when every launcher in it is hidden.
+ *
+ * The settings fallback is the one button a shell may keep here forever, so the
+ * dock is only dropped when nothing in it is left to draw.
+ */
+function dropEmptySurfaceDock(): void {
+  const dock = document.querySelector<HTMLElement>('[data-dsh-seework-dock=""]')
+  if (dock === null) return
+  const drawn = [...dock.children].some(child => (child as HTMLElement).style.display !== 'none')
+  if (!drawn) dock.remove()
 }
 
 /**
@@ -264,12 +294,14 @@ function setFloatingLaunchersHidden(hidden: boolean): void {
  *
  * @param ctx - client root context.
  * @param stores - the shared stores the tab bodies render from.
- * @param onAvailable - called once the tabs actually registered.
+ * @param onAvailable - called once the tabs actually registered, i.e. once the
+ *   right column is a way into these surfaces and the floating dock may retire.
  * @returns disposer cancelling the watch and unregistering what landed.
  */
 function registerSidebarTabsWhenReady(
   ctx: ClientContext,
   stores: TabStores,
+  onAvailable: () => void,
 ): { dispose: () => void } {
   let tabs: { dispose: () => void; tabsAvailable: boolean } | undefined
   let cancelled = false
@@ -282,6 +314,7 @@ function registerSidebarTabsWhenReady(
       const registered = registerSidebarTabs(ctx, stores)
       if (registered.tabsAvailable) {
         tabs = registered
+        onAvailable()
         return
       }
       // Services exist but the registry refused: retrying will not help.
