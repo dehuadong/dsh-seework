@@ -13,7 +13,7 @@
  * returns the stored value, so an accidental overwrite could not be undone.
  */
 
-import { DEFAULT_ASPECT_RATIO, DEFAULT_OUTPUT_FORMAT, OUTPUT_FORMAT_FALLBACKS, UNIFIED_ASPECT_RATIOS, includesIgnoringCase, type DirectoryPickerStatus, type ModelConfig } from '../protocol.ts'
+import { DEFAULT_ASPECT_RATIO, DEFAULT_OUTPUT_FORMAT, OUTPUT_FORMAT_FALLBACKS, UNIFIED_ASPECT_RATIOS, includesIgnoringCase, type DirectoryPickerStatus, type LibraryDataRootMove, type ModelConfig } from '../protocol.ts'
 import { Button, Pill, TextInput, Toggle } from './controls.tsx'
 import { VersionRow } from './VersionRow.tsx'
 import { useCallback, useEffect, useState } from 'react'
@@ -98,10 +98,63 @@ export function SeeWorkSettingsCard({ scope, api }: SettingsCardFace): JSX.Eleme
     return () => { live = false }
   }, [api])
 
+  /**
+   * Wait for a directory change to finish and say what it did.
+   *
+   * The host moves the library before it starts reading from the new directory, so
+   * the change is not done when the write returns — and claiming it is done would
+   * be a lie for as long as the files take to move. The host records each move and
+   * reports it in the library list, so the card watches that until the move it just
+   * caused settles. A report that never appears, or one older than this change,
+   * means nothing had to move.
+   *
+   * @param since - the newest move id the card already knew about.
+   * @param describe - how to word the outcome, with the move when there was one.
+   */
+  const reportDirectoryChange = useCallback(async (
+    since: number,
+    describe: (move: LibraryDataRootMove | undefined) => string,
+  ): Promise<void> => {
+    const deadline = Date.now() + 120_000
+    let seen: LibraryDataRootMove | undefined
+    for (;;) {
+      const result = await api.library()
+      const move = result.ok ? result.value.dataRootMove : undefined
+      if (move === undefined || move.id <= since) break
+      seen = move
+      if (!move.pending) break
+      // A move this slow is not worth blocking the card on; the library list keeps
+      // reporting it, and the user can look again.
+      if (Date.now() > deadline) break
+      await new Promise(resolve => setTimeout(resolve, 400))
+    }
+    setBusy(false)
+    if (seen === undefined) {
+      setNotice({ tone: 'ok', text: describe(undefined) })
+      return
+    }
+    if (seen.error !== undefined) {
+      // The old directory stays in force, so the library keeps working — and the
+      // reason is the host's own words.
+      setNotice({ tone: 'warn', text: `素材目录没有换过去：${seen.error}（仍在用原来的目录）` })
+      return
+    }
+    setNotice({ tone: 'ok', text: describe(seen) })
+  }, [api])
+
+  /** What a settled move says it did, without the opening words. */
+  const movedClause = (move: LibraryDataRootMove): string => {
+    if (move.moved === 0 && move.kept === 0) return '没有图片需要搬'
+    const kept = move.kept === 0 ? '' : `，另有 ${move.kept} 张同名图片留在旧目录`
+    return `${move.moved} 张图片已搬过去${kept}`
+  }
+
   /** Open the host's folder chooser and store what it returns. */
   const chooseDirectory = useCallback(async (): Promise<void> => {
     setBusy(true)
     setNotice(undefined)
+    const before = await api.library()
+    const since = before.ok ? (before.value.dataRootMove?.id ?? 0) : 0
     const result = await api.pickDirectory()
     if (!result.ok) {
       setBusy(false)
@@ -116,21 +169,37 @@ export function SeeWorkSettingsCard({ scope, api }: SettingsCardFace): JSX.Eleme
     const path = result.value.path
     await scope.set('dataDir', path)
     await scope.load()
+    // A refused write (validation, or a revision conflict) leaves the stored value
+    // as it was; saying the directory changed then would be a lie.
+    if (scope.getSnapshot().value?.dataDir !== path) {
+      setBusy(false)
+      setNotice({ tone: 'warn', text: '素材目录没有写进去，设置仍是原来的值。' })
+      return
+    }
+    await reportDirectoryChange(since, move => move === undefined
+      ? `素材目录已改为 ${path}（没有图片需要搬）。`
+      : `素材目录已改为 ${move.to}，${movedClause(move)}。`)
     await refreshRoot()
-    setBusy(false)
-    setNotice({ tone: 'ok', text: `素材目录已改为 ${path}（旧目录里的文件没有被删）。` })
-  }, [api, refreshRoot, scope])
+  }, [api, movedClause, refreshRoot, reportDirectoryChange, scope])
 
   /** Go back to the plugin's own default location. */
   const restoreDefaultDirectory = useCallback(async (): Promise<void> => {
     setBusy(true)
     setNotice(undefined)
+    const before = await api.library()
+    const since = before.ok ? (before.value.dataRootMove?.id ?? 0) : 0
     await scope.unset('dataDir')
     await scope.load()
+    if ((scope.getSnapshot().value?.dataDir ?? '') !== '') {
+      setBusy(false)
+      setNotice({ tone: 'warn', text: '素材目录没有改回默认，设置仍是原来的值。' })
+      return
+    }
+    await reportDirectoryChange(since, move => move === undefined
+      ? '素材目录已恢复默认（没有图片需要搬）。'
+      : `素材目录已恢复默认，${movedClause(move)}。`)
     await refreshRoot()
-    setBusy(false)
-    setNotice({ tone: 'ok', text: '素材目录已恢复默认（旧目录里的文件没有被删）。' })
-  }, [refreshRoot, scope])
+  }, [api, movedClause, refreshRoot, reportDirectoryChange, scope])
 
   /** Write one scalar field and re-read the section. */
   const write = useCallback((field: string, value: unknown): void => {

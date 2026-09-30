@@ -9,7 +9,7 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { CatalogRefreshOutcome, CatalogResult, DirectoryPickerStatus, ModelConfig, UpdateStart, UpdateStatus } from '../protocol.ts'
+import type { CatalogRefreshOutcome, CatalogResult, DirectoryPickerStatus, LibraryDataRootMove, ModelConfig, UpdateStart, UpdateStatus } from '../protocol.ts'
 import type { SeeWorkApi } from './api.ts'
 import type { ScopeSnapshot, SettingsOp, SeeWorkConfig, SeeWorkScope } from './settings-scope.ts'
 import { SeeWorkSettingsCard } from './SettingsCard.tsx'
@@ -82,6 +82,8 @@ function fakeScope(initial: SeeWorkConfig): {
 /** The API face the card uses: the library lookup, the folder picker, the catalog. */
 function fakeApi(options: {
   dataRoot?: string
+  /** A fixed data-root move report; the default is a settled one per call. */
+  move?: LibraryDataRootMove
   picker?: DirectoryPickerStatus
   pick?: { path?: string } | { cancelled: true }
   /** `throw` makes the library lookup fail, for the "host unreachable" case. */
@@ -100,11 +102,25 @@ function fakeApi(options: {
    */
   update?: Envelope<UpdateStatus>
 } = {}): SeeWorkApi & { picks: () => number; discoveries: () => number; refreshes: () => number } {
-  const state = { picks: 0, discoveries: 0, refreshes: 0 }
+  const state = { picks: 0, discoveries: 0, refreshes: 0, moves: 0 }
   const api = {
-    library: async (): Promise<Envelope<{ dataRoot: string }>> => {
+    library: async (): Promise<Envelope<{ dataRoot: string; dataRootMove?: LibraryDataRootMove }>> => {
       if (options.library === 'throw') throw new Error('unreachable')
-      return { ok: true, value: { dataRoot: options.dataRoot ?? '/home/u/.dsh/dsh-seework' } }
+      // The host reports the move a directory change caused, and the id grows per
+      // move — the fake answers with a fresh one, which is the state the card is in
+      // right after a change (a library this small is moved in one go).
+      state.moves += 1
+      // The host reports the directory it moved *into*, which is the one just
+      // chosen — so the fake's move follows the picker's answer.
+      const picked = options.pick !== undefined && 'path' in options.pick ? options.pick.path : undefined
+      const move: LibraryDataRootMove = options.move ?? {
+        id: state.moves,
+        to: picked ?? options.dataRoot ?? '/home/u/.dsh/dsh-seework',
+        moved: 3,
+        kept: 0,
+        pending: false,
+      }
+      return { ok: true, value: { dataRoot: options.dataRoot ?? '/home/u/.dsh/dsh-seework', dataRootMove: move } }
     },
     catalog: async (): Promise<Envelope<CatalogResult>> => {
       state.discoveries += 1
@@ -190,7 +206,9 @@ describe('SeeWorkSettingsCard', () => {
     const api = fakeApi({ pick: { path: 'D:\\SeeAI\\images' } })
     const fake = await render({}, api)
     const pick = container.querySelector<HTMLButtonElement>('[data-dsh-seework-pick-dir]')!
-    await act(async () => { pick.click(); await Promise.resolve() })
+    // A macrotask, not one microtask: the change writes the setting, re-reads it,
+    // and then watches the host's move report before it says anything.
+    await act(async () => { pick.click(); await new Promise(resolve => setTimeout(resolve, 0)) })
     expect(api.picks()).toBe(1)
     expect(fake.sets()).toEqual([['dataDir', 'D:\\SeeAI\\images']])
     expect(container.textContent).toContain('素材目录已改为 D:\\SeeAI\\images')
@@ -198,7 +216,10 @@ describe('SeeWorkSettingsCard', () => {
     // Cancelling the dialog changes nothing and needs no message.
     const cancelledApi = fakeApi({ pick: { cancelled: true } })
     const quiet = await render({}, cancelledApi)
-    await act(async () => { container.querySelector<HTMLButtonElement>('[data-dsh-seework-pick-dir]')!.click(); await Promise.resolve() })
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-dsh-seework-pick-dir]')!.click()
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
     expect(quiet.sets()).toEqual([])
     expect(container.textContent).not.toContain('素材目录已改为')
   })

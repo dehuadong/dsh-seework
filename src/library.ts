@@ -24,29 +24,292 @@ import {
   type LibraryImageRef,
   type LibraryListResult,
 } from './protocol.ts'
+import { systemDocumentsDirectory } from './documents-dir.ts'
 
-/** Default data root: `<DSH_HOME|~/.dsh>/dsh-seework`. */
-function defaultDataRoot(): string {
+/**
+ * The directory this plugin used before its default moved under Documents:
+ * `<DSH_HOME|~/.dsh>/dsh-seework`, which is where every installation kept its
+ * library until then.
+ */
+function legacyDataRoot(): string {
   const home = process.env.DSH_HOME?.trim()
   return path.join(home !== undefined && home !== '' ? home : path.join(homedir(), '.dsh'), DEFAULT_DATA_DIR_NAME)
 }
 
-let dataRoot = defaultDataRoot()
+/**
+ * The root in force, and the root that "no configured directory" means.
+ *
+ * Both start where the data already is, because the system's Documents directory
+ * is answered asynchronously ({@link primeDefaultDataRoot}): a default that
+ * pointed elsewhere from the first request would move the library twice — once to
+ * a guess, then to the answer.
+ */
+let dataRoot = legacyDataRoot()
+let defaultRoot = dataRoot
+/** The directory the settings last asked for, which a pending switch targets. */
+let targetRoot = dataRoot
+/** Switches run one at a time: two moves must never interleave. */
+let switching: Promise<void> = Promise.resolve()
+/** What the last switch did, for the settings card to report. */
+let lastMove: DataRootMove | undefined
+let moveSeq = 0
 
-/** The directory every library image and its index live under. */
+/** What one directory switch did. */
+export interface DataRootMove {
+  /** Increases per switch, so a reader can tell a new report from an old one. */
+  id: number
+  /** The directory the data is being moved into. */
+  to: string
+  /** How many files are across. */
+  moved: number
+  /** Files left in the old directory because the new one already had that name. */
+  kept: number
+  /** Whether the move is still running. */
+  pending: boolean
+  /** Why the move could not finish; absent when it did. */
+  error?: string
+}
+
+/** The directory every library image, canvas asset and index lives under. */
 export function libraryDataRoot(): string {
   return dataRoot
 }
 
+/** What the last directory switch did, or undefined when none has happened. */
+export function dataRootMove(): DataRootMove | undefined {
+  return lastMove
+}
+
 /**
- * Point the library at another root (settings `dataDir`; empty restores the
- * default). The host half calls this on every settings resolution, so an
- * unchanged value is a no-op and never disturbs in-flight writes.
+ * Put the stores at a directory, now, moving nothing.
+ *
+ * This is the primitive: the root changes on the spot, so a caller with data to
+ * bring along must move it first — {@link applyDataDirectory} is the one that
+ * does. A test putting the store in a temp directory calls this, and deliberately
+ * moves nothing: the directory it is switching away from may be a real user's
+ * library, and moving it into a temp directory that the test then deletes would
+ * destroy it.
+ *
+ * @param value - the configured directory, or empty for the default.
  */
 export function setLibraryDataRoot(value: string | undefined): void {
+  dataRoot = resolveRoot(value)
+  targetRoot = dataRoot
+  lastMove = undefined
+}
+
+/**
+ * Follow the settings value, moving the library when it points somewhere new.
+ *
+ * Called wherever the settings are read, because on the hosts this plugin runs on
+ * the value is a live reference a write changes in place — there is no change event
+ * to hang this on. An unchanged value is a no-op; a change is handed to
+ * {@link applyDataDirectory}, which moves the library before the root changes.
+ *
+ * @param value - the configured directory, or empty for the default.
+ */
+export function followDataDirectory(value: string | undefined): void {
+  if (resolveRoot(value) === targetRoot) return
+  void applyDataDirectory(value)
+}
+
+/**
+ * Follow the settings to another directory, bringing what the current one holds.
+ *
+ * The move happens first and the root changes second: a library split across two
+ * directories would show neither half completely, so reads and writes keep going
+ * to the old root until everything is across. A move that could not finish leaves
+ * the old root in force and keeps the reason for the settings card.
+ *
+ * @param value - the configured directory, or empty for the default.
+ */
+export async function applyDataDirectory(value: string | undefined): Promise<void> {
+  const next = resolveRoot(value)
+  if (next === targetRoot) return
+  targetRoot = next
+  switching = switching.then(() => switchDataRoot(next), () => switchDataRoot(next))
+  await switching
+}
+
+/** Resolve a configured value against the default in force. */
+function resolveRoot(value: string | undefined): string {
   const trimmed = value?.trim()
-  const next = trimmed === undefined || trimmed === '' ? defaultDataRoot() : path.resolve(trimmed)
-  if (next !== dataRoot) dataRoot = next
+  return trimmed === undefined || trimmed === '' ? defaultRoot : path.resolve(trimmed)
+}
+
+/** Move everything across, then switch — or keep the old root and say why. */
+async function switchDataRoot(next: string): Promise<void> {
+  if (next === dataRoot) {
+    // Nothing to move (the setting came back to where the data already is), so the
+    // previous report no longer describes anything.
+    lastMove = undefined
+    return
+  }
+  moveSeq += 1
+  const id = moveSeq
+  lastMove = { id, to: next, moved: 0, kept: 0, pending: true }
+  const report = await migrateDataRoot(dataRoot, next)
+  // Assigned here rather than through `setLibraryDataRoot`: that primitive clears
+  // the report, and this report is exactly what the caller needs to see.
+  lastMove = {
+    id,
+    to: next,
+    moved: report.moved,
+    kept: report.kept,
+    pending: false,
+    ...report.error === undefined ? {} : { error: report.error },
+  }
+  if (report.error === undefined) dataRoot = next
+}
+
+/**
+ * Adopt the system's Documents directory as the default root.
+ *
+ * The answer needs a command, so it arrives after boot; until it does, the default
+ * is the directory the data is already in. When the settings name no directory of
+ * their own, this is also the moment the library moves out of the hidden `.dsh` —
+ * and everything in the old default comes with it.
+ *
+ * @param usesDefault - whether the settings currently name no directory.
+ */
+export async function primeDefaultDataRoot(usesDefault: () => boolean): Promise<void> {
+  const documents = await systemDocumentsDirectory()
+  const next = path.join(documents ?? path.join(homedir(), 'Documents'), DEFAULT_DATA_DIR_NAME)
+  if (next === defaultRoot) return
+  defaultRoot = next
+  // A configured directory is the user's own choice: the default is not in play.
+  if (!usesDefault()) return
+  await applyDataDirectory(undefined)
+}
+
+/** What the plugin keeps under its data root, in the order a move takes them. */
+const DATA_ROOT_ENTRIES = ['index.json', 'images', 'canvas'] as const
+
+/**
+ * Move one data root's contents into another.
+ *
+ * Only the plugin's own entries are considered, and **nothing is overwritten**: a
+ * name the destination already has stays in the source and is counted as kept, so
+ * a move can never destroy a file. The index is merged by entry id — a picture
+ * moved without its entry would be on disk and invisible.
+ *
+ * The source directory itself is left in place: an empty shell is safer than a
+ * recursive delete that could race with a file somebody just put there.
+ *
+ * @param from - the directory in force.
+ * @param to - the directory to move into.
+ * @returns how many pictures moved, how many were kept, and why it stopped early.
+ */
+export async function migrateDataRoot(from: string, to: string): Promise<{ moved: number; kept: number; error?: string }> {
+  let moved = 0
+  let kept = 0
+  try {
+    if (path.resolve(from) === path.resolve(to)) return { moved, kept }
+    if (!(await isDirectory(from))) return { moved, kept }
+    await fs.mkdir(to, { recursive: true })
+    for (const entry of DATA_ROOT_ENTRIES) {
+      const source = path.join(from, entry)
+      const destination = path.join(to, entry)
+      if (!(await isDirectory(source)) && !(await isFile(source))) continue
+      if (entry === 'index.json') {
+        // Bookkeeping, not a picture: it is moved (or merged) so the pictures that
+        // moved stay listed, and it is deliberately not counted in the report —
+        // the number the user reads is how many pictures came along.
+        await mergeIndexAt(source, destination)
+        continue
+      }
+      const nested = await moveTree(source, destination)
+      moved += nested.moved
+      kept += nested.kept
+    }
+  } catch (error) {
+    return { moved, kept, error: error instanceof Error ? error.message : String(error) }
+  }
+  return { moved, kept }
+}
+
+/** Move every file under one directory into another, never overwriting. */
+async function moveTree(source: string, destination: string): Promise<{ moved: number; kept: number }> {
+  await fs.mkdir(destination, { recursive: true })
+  let moved = 0
+  let kept = 0
+  for (const entry of await fs.readdir(source, { withFileTypes: true })) {
+    const from = path.join(source, entry.name)
+    const to = path.join(destination, entry.name)
+    if (entry.isDirectory()) {
+      const nested = await moveTree(from, to)
+      moved += nested.moved
+      kept += nested.kept
+      continue
+    }
+    if (!entry.isFile()) continue
+    if (await isFile(to)) {
+      kept += 1
+      continue
+    }
+    await moveFile(from, to)
+    moved += 1
+  }
+  return { moved, kept }
+}
+
+/** Move one file, copying when the two directories are on different volumes. */
+async function moveFile(from: string, to: string): Promise<void> {
+  try {
+    await fs.rename(from, to)
+    return
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EXDEV') throw error
+  }
+  // Different volumes: copy first, and only remove the source once the copy is
+  // whole. A half-copied file is worse than one that stayed put.
+  await fs.copyFile(from, to)
+  const [source, copy] = await Promise.all([fs.stat(from), fs.stat(to)])
+  if (source.size !== copy.size) throw new Error(`复制后大小不一致，已留在原处：${path.basename(from)}`)
+  await fs.rm(from)
+}
+
+/**
+ * Bring one index file's entries into another, by entry id.
+ *
+ * The pictures themselves were just moved; an entry left behind would leave them
+ * on disk and invisible, so a source entry the destination does not know is
+ * appended. Entries the destination already has win — its files are the ones the
+ * images now resolve to.
+ *
+ * @param source - the index being moved away from.
+ * @param destination - the index being moved into.
+ */
+async function mergeIndexAt(source: string, destination: string): Promise<void> {
+  const incoming = await readIndexFile(source)
+  if (incoming.length === 0) return
+  if (!(await isFile(destination))) {
+    await moveFile(source, destination)
+    return
+  }
+  const current = await readIndexFile(destination)
+  const known = new Set(current.map(entry => entry.id))
+  const added = incoming.filter(entry => !known.has(entry.id))
+  if (added.length === 0) return
+  await writeIndexFile(destination, [...current, ...added])
+}
+
+/** Whether a path is a directory that is really there. */
+async function isDirectory(target: string): Promise<boolean> {
+  try {
+    return (await fs.stat(target)).isDirectory()
+  } catch {
+    return false
+  }
+}
+
+/** Whether a path is a file that is really there. */
+async function isFile(target: string): Promise<boolean> {
+  try {
+    return (await fs.stat(target)).isFile()
+  } catch {
+    return false
+  }
 }
 
 function indexPath(): string { return path.join(dataRoot, 'index.json') }
@@ -188,10 +451,15 @@ function isStoredEntry(value: unknown): value is StoredEntry {
     })
 }
 
-/** Read the index, tolerating a missing or corrupt file. */
+/** Read the index in force, tolerating a missing or corrupt file. */
 async function readIndex(): Promise<StoredEntry[]> {
+  return await readIndexFile(indexPath())
+}
+
+/** Read one index file by path, tolerating a missing or corrupt file. */
+async function readIndexFile(file: string): Promise<StoredEntry[]> {
   try {
-    const raw = await fs.readFile(indexPath(), 'utf8')
+    const raw = await fs.readFile(file, 'utf8')
     const parsed: unknown = JSON.parse(raw)
     if (parsed === null || typeof parsed !== 'object') return []
     const entries = (parsed as { entries?: unknown }).entries
@@ -202,13 +470,18 @@ async function readIndex(): Promise<StoredEntry[]> {
   }
 }
 
-/** Persist the index atomically (temp file + rename). */
+/** Persist the index in force atomically (temp file + rename). */
 async function writeIndex(entries: StoredEntry[]): Promise<void> {
-  await fs.mkdir(imagesDir(), { recursive: true })
+  await writeIndexFile(indexPath(), entries)
+}
+
+/** Persist one index file by path atomically (temp file + rename). */
+async function writeIndexFile(file: string, entries: StoredEntry[]): Promise<void> {
+  await fs.mkdir(path.dirname(file), { recursive: true })
   const payload: IndexFile = { version: 1, entries }
-  const tmp = `${indexPath()}.tmp-${process.pid}`
+  const tmp = `${file}.tmp-${process.pid}`
   await fs.writeFile(tmp, JSON.stringify(payload), 'utf8')
-  await fs.rename(tmp, indexPath())
+  await fs.rename(tmp, file)
 }
 
 /** Project a stored entry onto the wire shape (served image URLs). */
@@ -254,6 +527,9 @@ export async function listLibrary(): Promise<LibraryListResult> {
     total: entries.length,
     imageCount,
     dataRoot,
+    // What the last directory change did: the settings card reads it back to say
+    // what happened instead of claiming the change already took effect.
+    dataRootMove: lastMove === undefined ? undefined : { ...lastMove },
   }
 }
 

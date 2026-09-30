@@ -72,7 +72,16 @@ const PRINTED_URL = /dsh web: (http:\/\/127\.0\.0\.1:\d+\/\?token=[A-Za-z0-9_-]+
 
 /** Child environment for anything that must see our own profile tree. */
 function dshEnv() {
-  return { ...process.env, DSH_HOME: home, ELECTRON_RUN_AS_NODE: '1' }
+  return {
+    ...process.env,
+    DSH_HOME: home,
+    // Where the plugin's default material directory hangs from. It cannot be
+    // redirected by environment alone — Windows answers `GetFolderPath` from the
+    // account's shell folders, not `%USERPROFILE%` — and this suite must never
+    // write into, or move, the developer's real Documents folder.
+    DSH_SEEWORK_DOCUMENTS_DIR: path.join(home, 'documents'),
+    ELECTRON_RUN_AS_NODE: '1',
+  }
 }
 
 /** Say what to do about it, not just what went wrong. */

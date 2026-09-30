@@ -650,6 +650,30 @@ export interface LibraryListResult {
   imageCount: number
   /** Absolute data root the library is written to. */
   dataRoot: string
+  /**
+   * What the last move to another data root did, while it is worth reporting.
+   *
+   * Changing the material directory moves the library, and that takes as long as
+   * the files are big — so the settings card watches this to say what happened
+   * rather than claiming the change already took effect. Absent when nothing moved.
+   */
+  dataRootMove?: LibraryDataRootMove
+}
+
+/** One data-root move, as the browser sees it. */
+export interface LibraryDataRootMove {
+  /** Increases per move: a reader can tell a new report from one it already saw. */
+  id: number
+  /** The directory the library is being moved into. */
+  to: string
+  /** How many pictures came along. */
+  moved: number
+  /** Pictures left behind because the new directory already had that name. */
+  kept: number
+  /** Whether the move is still running. */
+  pending: boolean
+  /** Why the move could not finish; absent when it did. */
+  error?: string
 }
 
 /** Generation task states. */

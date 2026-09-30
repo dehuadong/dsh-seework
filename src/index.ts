@@ -29,7 +29,7 @@ import { summarizeSavedModels } from './model-summary.ts'
 import { GenerationRuntime } from './generation-runtime.ts'
 import type { UpdateHost } from './update.ts'
 import { catalogUrl, gatewayUrl } from './engine.ts'
-import { setLibraryDataRoot } from './library.ts'
+import { followDataDirectory, primeDefaultDataRoot } from './library.ts'
 import { makeRoutes, type SettingsSeam } from './routes.ts'
 import {
   Config as ConfigSchema,
@@ -80,7 +80,6 @@ export {
   removeLibraryEntry,
   imageSize,
   libraryDataRoot,
-  setLibraryDataRoot,
 } from './library.ts'
 export type { EffectiveConfig } from './settings.ts'
 
@@ -227,6 +226,9 @@ export function apply(ctx: Context, config?: SettingsEntry, makeRefresher: Refre
   // handlers declared below this call are initialised by the time it fires.
   const read = installSettingsSection(ctx, config ?? {}, {
     onChange: () => {
+      // A host that reports commits (0.1.x) tells us here; the hosts that do not
+      // are covered by `resolve` below, which every settings read goes through.
+      followDataDirectory(effectiveConfig(read()).dataDir)
       syncAnnouncement()
       syncSkill()
     },
@@ -235,7 +237,10 @@ export function apply(ctx: Context, config?: SettingsEntry, makeRefresher: Refre
   /** Resolved view of the current settings. */
   const resolve = (): EffectiveConfig => {
     const value = effectiveConfig(read())
-    setLibraryDataRoot(value.dataDir)
+    // Reading the settings is also what makes the stores follow them: the data root
+    // moves with `dataDir`, and moving it means moving the library — which is not
+    // something a later read could do on its own.
+    followDataDirectory(value.dataDir)
     return value
   }
 
@@ -311,13 +316,21 @@ export function apply(ctx: Context, config?: SettingsEntry, makeRefresher: Refre
     }
 
     sctx.effect(
-      // The reader handed to the routes also lets the stores follow the settings:
-      // `resolve` is what applies `dataDir`, and a route that composes a path out
-      // of the data root (revealing a picture's file) must not be answered from
-      // the directory the settings used to name.
+      // The reader handed to the routes is the live settings entry: the stores
+      // already follow it (the change handler applies the data root), so a route
+      // that composes a path out of it is never answered from a directory the
+      // settings no longer name.
       () => mountRoutes(sctx, () => { resolve(); return read() }, runtimeOf, refresherOf, () => probeUpdateHost(sctx)),
       'dsh-seework: routes',
     )
+
+    // The default material directory is the user's Documents folder, and only the
+    // system can name it — asynchronously, and after the provider is attached.
+    // Adopting it is also what moves an installation that still keeps its library
+    // in the hidden `.dsh` default, so it runs on every boot and is a no-op once
+    // the data is where it belongs. A configured directory of the user's own means
+    // the default is not in play at all.
+    void primeDefaultDataRoot(() => effectiveConfig(read()).dataDir.trim() === '')
 
     // The refresher itself is plugin state (it needs the settings write seam, and
     // the card's route reads it per request), so the fiber owns only its teardown.

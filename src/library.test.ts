@@ -7,14 +7,17 @@
 import { promises as fs } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  applyDataDirectory,
   appendLibraryEntry,
   clearLibrary,
+  dataRootMove,
   imageSize,
   libraryDataRoot,
   libraryImageLocation,
   listLibrary,
+  migrateDataRoot,
   readLibraryHead,
   readLibraryImage,
   removeLibraryEntry,
@@ -160,5 +163,114 @@ describe('library store', () => {
 
     const listing = await listLibrary()
     expect(listing.total).toBe(1)
+  })
+})
+
+describe('moving the library to another directory', () => {
+  /**
+   * Changing the material directory moves the library (the user asked for it: the
+   * old files used to be left behind, which reads as "my pictures are gone").
+   *
+   * What these protect: nothing is ever overwritten, the moved pictures stay
+   * listed, a cross-volume move copies instead of failing, and a move that could
+   * not finish leaves the old directory in force rather than splitting the library
+   * across two.
+   */
+  let root: string
+  let other: string
+  const previous = libraryDataRoot()
+
+  /** Put one generated picture into the library rooted at `dir`. */
+  async function seed(dir: string, size = 8): Promise<string> {
+    setLibraryDataRoot(dir)
+    const entry = await appendLibraryEntry({
+      request: request(),
+      images: [{ b64: pngBuffer(size, size).toString('base64'), mime: 'image/png' }],
+      source: 'panel',
+    })
+    return entry.images[0]!.file
+  }
+
+  beforeEach(async () => {
+    root = await fs.mkdtemp(path.join(tmpdir(), 'dsh-seework-move-from-'))
+    other = await fs.mkdtemp(path.join(tmpdir(), 'dsh-seework-move-to-'))
+    setLibraryDataRoot(root)
+  })
+
+  afterEach(async () => {
+    vi.restoreAllMocks()
+    setLibraryDataRoot(previous === '' ? undefined : previous)
+    await fs.rm(root, { recursive: true, force: true })
+    await fs.rm(other, { recursive: true, force: true })
+  })
+
+  it('brings the pictures and the index along, and leaves nothing behind', async () => {
+    const file = await seed(root)
+
+    expect(await migrateDataRoot(root, other)).toEqual({ moved: 1, kept: 0 })
+
+    // The picture is in the new directory and the index still knows about it, so
+    // the library shows it there rather than on disk and invisible.
+    setLibraryDataRoot(other)
+    expect((await listLibrary()).entries).toHaveLength(1)
+    await expect(readLibraryImage(file)).resolves.toBeDefined()
+    await expect(fs.readdir(path.join(root, 'images'))).resolves.toEqual([])
+  })
+
+  it('never overwrites: a name the new directory already has stays where it is', async () => {
+    const file = await seed(root)
+    // The same picture is already in the destination (the user moved the directory
+    // back and forth): its copy wins, and the source's is left alone.
+    await fs.mkdir(path.join(other, 'images'), { recursive: true })
+    await fs.writeFile(path.join(other, 'images', file), Buffer.from('the one that wins'))
+
+    expect(await migrateDataRoot(root, other)).toEqual({ moved: 0, kept: 1 })
+    await expect(fs.readFile(path.join(other, 'images', file), 'utf8')).resolves.toBe('the one that wins')
+    await expect(fs.stat(path.join(root, 'images', file))).resolves.toBeDefined()
+  })
+
+  it('copies when the two directories are on different volumes', async () => {
+    const file = await seed(root)
+    // Renaming across volumes fails with EXDEV, which is the ordinary case when the
+    // new directory is on another drive — so the move copies, verifies, then removes.
+    const rename = vi.spyOn(fs, 'rename').mockImplementation(async () => {
+      const error: NodeJS.ErrnoException = new Error('EXDEV: cross-device link not permitted')
+      error.code = 'EXDEV'
+      throw error
+    })
+    let report: { moved: number; kept: number; error?: string }
+    try {
+      report = await migrateDataRoot(root, other)
+    } finally {
+      rename.mockRestore()
+    }
+    expect(report).toEqual({ moved: 1, kept: 0 })
+    expect((await fs.readFile(path.join(other, 'images', file))).length).toBeGreaterThan(0)
+    await expect(fs.stat(path.join(root, 'images', file))).rejects.toThrow()
+  })
+
+  it('switches only after the move, and reports what it did', async () => {
+    await seed(root)
+
+    await applyDataDirectory(other)
+
+    expect(libraryDataRoot()).toBe(other)
+    expect(dataRootMove()).toMatchObject({ to: other, moved: 1, kept: 0, pending: false })
+    expect((await listLibrary()).dataRootMove).toMatchObject({ to: other, pending: false })
+  })
+
+  it('keeps the old directory in force when the move fails', async () => {
+    const file = await seed(root)
+    // A destination that cannot be created: the move stops, and the library keeps
+    // working from where it is instead of half-following the setting.
+    const blocked = path.join(other, 'images')
+    await fs.writeFile(blocked, 'not a directory', 'utf8')
+
+    await applyDataDirectory(path.join(other, 'images', 'deeper'))
+
+    expect(libraryDataRoot()).toBe(root)
+    expect(dataRootMove()).toMatchObject({ pending: false })
+    expect(dataRootMove()?.error).toBeDefined()
+    await expect(readLibraryImage(file)).resolves.toBeDefined()
   })
 })

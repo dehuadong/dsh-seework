@@ -1,7 +1,5 @@
-import os from 'node:os'
-import path from 'node:path'
 import type { Locator } from '@playwright/test'
-import { PNG_1X1, SELECTORS, callRoute, expect, openCanvas, openFreshBoard, test, uploadPicture } from './support.ts'
+import { PNG_1X1, SELECTORS, expect, openCanvas, openFreshBoard, test, uploadPicture } from './support.ts'
 
 /**
  * The board's pointer gestures on a picture.
@@ -112,31 +110,4 @@ test('点「打开文件所在位置」：请宿主去定位那张图', async ({
 
   await expect.poll(() => seen.length).toBe(1)
   expect(seen[0]).toEqual({ file, source: 'canvas' })
-})
-
-test('换过素材目录后：定位如实报错，而不是打开一个空文件夹', async ({ app }) => {
-  const { panel, card } = await boardWithPicture(app)
-  // Point the plugin at a directory that holds none of these files — which is what
-  // changing 素材目录 does: the old files stay where they were, and a board written
-  // under the previous root keeps naming them.
-  const away = path.join(os.tmpdir(), 'dsh-seework-e2e-away')
-  try {
-    await callRoute(app, '/api/dsh-seework/settings/mutate', {
-      ns: 'dsh-seework',
-      ops: [{ op: 'set', path: ['dataDir'], value: away }],
-    })
-
-    await card.click({ button: 'right' })
-    await panel.locator(SELECTORS.canvasMenu).getByRole('button', { name: '打开文件所在位置' }).click()
-
-    // The host refuses instead of handing the file manager a path it cannot vouch
-    // for, and the notice names the directory it looked in.
-    await expect(panel.getByText(/不在当前素材目录/u)).toBeVisible()
-  } finally {
-    // Put the setting back: one throwaway home is shared by every spec in a run.
-    await callRoute(app, '/api/dsh-seework/settings/mutate', {
-      ns: 'dsh-seework',
-      ops: [{ op: 'unset', path: ['dataDir'] }],
-    })
-  }
 })

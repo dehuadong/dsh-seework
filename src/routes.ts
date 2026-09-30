@@ -391,6 +391,9 @@ export function makeRoutes(deps: SeeWorkRoutesDeps): WebRoute[] {
       const expectedRevision = typeof body.expectedRevision === 'number' ? body.expectedRevision : undefined
       try {
         await deps.settings.mutate(SEEWORK_SETTINGS_NAMESPACE, ops, expectedRevision)
+        // The stores follow the settings, and this is where they just changed: a
+        // data root that moves has to move its files, which no later read can do.
+        deps.resolve()
         const view = deps.settings.describe({ redactSecrets: true })
           .find(descriptor => descriptor.ns === SEEWORK_SETTINGS_NAMESPACE)
         ok(res, view === undefined ? { ns: SEEWORK_SETTINGS_NAMESPACE, revision: 0, value: {}, secrets: [] } : toView(view))
@@ -649,9 +652,9 @@ export function makeRoutes(deps: SeeWorkRoutesDeps): WebRoute[] {
       if (typeof body.file !== 'string' || source === undefined) {
         return fail(res, 400, 'invalid_body', '需要图片文件名与来源（library / canvas）。')
       }
-      // The data root follows the settings but is only refreshed when the config is
-      // resolved — and this route composes a path out of it, so resolve first.
-      // Otherwise a directory change would be answered from the previous directory.
+      // The stores follow the settings, so reading them here makes sure the root is
+      // the one the settings name — a directory change moves the library before it
+      // takes effect, and this route composes a path out of that root.
       deps.resolve()
       const target = imagePathFor(body.file, source)
       if (target === undefined) return fail(res, 400, 'invalid_body', '图片文件名不合法。')
