@@ -100,7 +100,7 @@ DSH 的插件管理**没有 update 动作**（`plugin_manager` 只有 install / 
 
 工程与实现细节不在这个文件里：
 
-- [架构与实现地图](https://github.com/dehuadong/dsh-seework/blob/main/docs/architecture.md)——每处行为的现状与简短的「为什么」
+- [架构与实现地图](https://github.com/dehuadong/dsh-seework/blob/main/docs/architecture.md)——架构与实现的现状 
 - [设计文档](https://github.com/dehuadong/dsh-seework/tree/main/docs/design)——技术方案与取舍
 - [领域术语](https://github.com/dehuadong/dsh-seework/blob/main/CONTEXT.md)
 - 构建、测试、同步、探针等开发入口：[AGENTS.md](https://github.com/dehuadong/dsh-seework/blob/main/AGENTS.md)

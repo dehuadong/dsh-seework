@@ -17,13 +17,13 @@
 | 工件 | 位置 |
 | --- | --- |
 | 工程说明与使用指南 | [`README.md`](README.md) |
-| 架构与实现**地图**——每处行为的现状与简短的「为什么」 | [`docs/architecture.md`](docs/architecture.md) |
+| 架构与实现**地图**——每架构与实现的现状  | [`docs/architecture.md`](docs/architecture.md) |
 | 详细设计与取舍——**一个主题一份**（同一主题的后续变更进同一份，标修订与状态；无关主题另开） | [`docs/design/`](docs/design/) |
 | 架构决定——**不可逆、值得留档**的取舍（含被否决的备选） | [`docs/adr/`](docs/adr/) | 
 | Agent 变更与决策记录 | [`.agents/notes/`](.agents/notes/README.md)（本工程） |
 | 对外接口契约（本插件消费） | **外部属主**：SeeAI Hub 仓库（`dehuadong/seeaihub`）的 `docs/api/`，不在本目录 |
 
-说明：`architecture.md`、`gui-verification.md`为历史开发文档，仅供参考历史做法，后期新开发不再记录，如需要另外建档,也不作为新的决策依据。 
+说明： `gui-verification.md`为历史开发文档，仅供参考历史做法，后期新开发不再记录，如需要另外建档,也不作为新的决策依据。 
 
 ## 工程工作流
 

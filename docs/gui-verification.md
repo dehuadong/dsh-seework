@@ -138,7 +138,4 @@ Get-NetTCPConnection -LocalPort 3299 -State Listen | ForEach-Object { Stop-Proce
   - 对话里的**历史**卡片没有按钮——旧结果里没有素材库文件名；素材库里的历史图片不受影响。
 - **素材库详情里的「复制提示词」要像个按钮**。断言：`1px solid` 边框、有 background、`padding: 4px 12px`、约 86×30px，且 `pre.contains(button) === false`（**不在**提示词容器里）；提示词本身是带边框、限高可滚动的 `pre`。
 
-## 启动与连通
-
-- 检测模型可用、对话里生图能在工具调用旁显示。
-- 「加入到对话框」（浮动指令条上的入口）在真机上必须**有反应**——`conversation` 服务晚于本插件挂载，所以它是**用时再探**的（实现理由见 [`architecture.md`](architecture.md)）。
+ 
