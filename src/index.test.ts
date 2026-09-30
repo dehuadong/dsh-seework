@@ -69,10 +69,10 @@ interface Harness {
   /**
    * The host's skill catalog, read from the **real** `SkillRegistry`.
    *
-   * Asserting the `enabled` switch against the host's own catalog (rather than
-   * against an array this test file maintains) is the point: "unregister"
-   * means the model no longer sees the skill, and only the registry can say so.
-   * Answers `[]` while no registry is attached.
+   * Asserting the skill against the host's own catalog (rather than against an
+   * array this test file maintains) is the point: "registered" means the model can
+   * see the skill, and only the registry can say so. Answers `[]` while no registry
+   * is attached.
    */
   skillCatalog(): Promise<SkillSummary[]>
   /**
@@ -87,6 +87,8 @@ interface Harness {
   unload(): void
   /** The resolved config the host half is currently acting on. */
   effective(): EffectiveConfig
+  /** Every path op the plugin wrote through the settings seam. */
+  mutations: Array<{ ops: unknown[] }>
 }
 
 /** Build a stub host context and assemble the plugin once against it. */
@@ -96,6 +98,8 @@ function assemble(entry: Config = {}, makeRefresher?: RefresherFactory): Harness
   const routes: Array<{ path: string; kind: string; disposed: boolean }> = []
   const effects: Array<{ label: string | undefined; disposed: boolean }> = []
   const document: Config = { ...entry }
+  /** Every path op the plugin wrote through the settings seam. */
+  const mutations: Array<{ ops: unknown[] }> = []
   /** Deferred `ctx.inject` callbacks, run once every named service is attached. */
   const pendingInjections: Array<{ names: string[]; callback: (scoped: Context) => void }> = []
   const cleanups: Array<() => void> = []
@@ -189,12 +193,13 @@ function assemble(entry: Config = {}, makeRefresher?: RefresherFactory): Harness
     sections,
     routes,
     effects,
+    mutations,
     document,
     attachSettings: () => {
       settingsProvider = {
         writable: true,
         describe: () => [],
-        mutate: async () => {},
+        mutate: async (_ns: unknown, ops: unknown[]) => { mutations.push({ ops }) },
         installSection: (
           _owner: unknown,
           _ns: SettingsNamespace,
@@ -272,34 +277,6 @@ describe('the capability skill seam', () => {
     expect(harness.tools.map(tool => tool.name).sort()).toEqual(['generate_image'])
     expect(harness.routes.length).toBeGreaterThan(0)
     expect(await harness.skillCatalog()).toEqual([])
-  })
-
-  it('does not register the skill while the plugin is disabled', async () => {
-    const harness = assemble({ enabled: false })
-    harness.attachSettings()
-    harness.attachSkills()
-    // `enabled=false` removes the skill from the catalog, exactly as it removes
-    // the announcement; the tool stays registered (it refuses at call time).
-    expect(await harness.skillCatalog()).toEqual([])
-    expect(harness.sections.filter(section => !section.disposed)).toHaveLength(0)
-    expect(harness.tools.map(tool => tool.name).sort()).toEqual(['generate_image'])
-  })
-
-  it('registers and unregisters the skill as `enabled` changes at runtime', async () => {
-    const harness = assemble({ enabled: true })
-    harness.attachSettings()
-    harness.attachSkills()
-    expect(await harness.skillCatalog()).toHaveLength(1)
-
-    // A settings commit that turns the plugin off must take the skill out of the
-    // host's **real** catalog, not just stop the prompt section.
-    harness.document.enabled = false
-    harness.commit()
-    expect(await harness.skillCatalog()).toEqual([])
-
-    harness.document.enabled = true
-    harness.commit()
-    expect(await harness.skillCatalog()).toHaveLength(1)
   })
 
   it('keeps the skill when only the announcement is turned off, and the skill stands alone', async () => {
@@ -845,13 +822,20 @@ describe('apply', () => {
     expect(harness.sections.filter(section => !section.disposed)).toHaveLength(0)
   })
 
-  it('leaves the announcement out while the plugin is disabled', () => {
-    const harness = assemble({ enabled: false })
-    expect(harness.sections.filter(section => !section.disposed)).toHaveLength(0)
+  it('takes the retired master switch out of a document that still carries it', () => {
+    // The plugin no longer reads `enabled`, so leaving it in the file would keep
+    // claiming a switch nothing acts on (#5). A host that validates strictly may
+    // already have dropped it, in which case there is nothing to take out.
+    const harness = assemble({ enabled: false } as unknown as Config)
+    harness.attachSettings()
+    expect(harness.mutations).toEqual([{ ops: [{ op: 'unset', path: ['enabled'] }] }])
+
+    const clean = assemble()
+    clean.attachSettings()
+    expect(clean.mutations).toEqual([])
   })
 
-  it('registers no routes until a settings provider is attached', () => {
-    // Without the provider there is no namespace to bridge, and the routes
+  it('registers no routes until a settings provider is attached', () => {    // Without the provider there is no namespace to bridge, and the routes
     // would have nothing to read — the settings card could not configure
     // anything either, so this is the honest degradation.
     const harness = assemble()

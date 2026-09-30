@@ -51,7 +51,6 @@ interface FakeSettingsDocument {
   defaultModel?: string
   /** The configured generation defaults (#668: the ratio is applied here too). */
   defaultAspectRatio?: string
-  enabled?: boolean
 }
 
 /** The fake settings provider: describe (redacted) + mutate for one namespace. */
@@ -999,7 +998,7 @@ describe('plugin metadata', () => {
     const defaults = plugin.Config({}).get()!
     expect(defaults.apiUrl).toBe('http://127.0.0.1:8080/v1')
     expect(defaults.models).toEqual([])
-    expect(defaults.enabled).toBe(true)
+    expect(defaults.allowAgentGeneration).toBe(true)
   })
 
   it('tells the agent where to configure the plugin when it is not set up yet', async () => {

@@ -18,7 +18,7 @@ import type {} from '@deepseek-ai/dsh-system-prompt'
 // Type-only: pulls the tools / attachments Context merges (agent tools).
 import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-attachment'
-import { SettingsConflictError } from '@deepseek-ai/dsh-settings'
+import { SettingsConflictError, type SettingsPathOp } from '@deepseek-ai/dsh-settings'
 import { registerAgentImageTools } from './agent-tools.ts'
 import { registerCapabilitiesSkill, SKILL_NAME } from './capabilities-skill.ts'
 import { hasRetiredModelKeys } from './capability.ts'
@@ -34,6 +34,7 @@ import { makeRoutes, type SettingsSeam } from './routes.ts'
 import {
   Config as ConfigSchema,
   effectiveConfig,
+  hasRetiredEnableSwitch,
   installSettingsSection,
   type Config as SettingsEntry,
   type EffectiveConfig,
@@ -71,7 +72,7 @@ export { createCapabilitiesSkillProvider, registerCapabilitiesSkill, SKILL_NAME 
 export { capabilityLineFor, summarizeSavedModels } from './model-summary.ts'
 export { GenerationRuntime, SeeWorkRuntimeError, isFinalStatus } from './generation-runtime.ts'
 export { registerAgentImageTools, ensureConfigured } from './agent-tools.ts'
-export { effectiveConfig, resolveModel, modelName } from './settings.ts'
+export { effectiveConfig, hasRetiredEnableSwitch, resolveModel, modelName } from './settings.ts'
 export {
   appendLibraryEntry,
   clearLibrary,
@@ -230,7 +231,6 @@ export function apply(ctx: Context, config?: SettingsEntry, makeRefresher: Refre
       // are covered by `resolve` below, which every settings read goes through.
       followDataDirectory(effectiveConfig(read()).dataDir)
       syncAnnouncement()
-      syncSkill()
     },
   })
 
@@ -271,13 +271,40 @@ export function apply(ctx: Context, config?: SettingsEntry, makeRefresher: Refre
    * a workaround.
    */
   const adoptRefreshedModels = async (seam: SettingsSeam, models: ModelConfig[]): Promise<void> => {
-    const op = { op: 'set' as const, path: ['models'], value: models }
+    await applySettingsOp(seam, { op: 'set', path: ['models'], value: models })
+  }
+
+  /**
+   * Apply one settings op, retrying once against the fresh document when a
+   * concurrent write won the revision.
+   *
+   * Re-reading is the correct recovery, not a workaround: the op re-applies to
+   * whatever is saved at that moment, so a write that raced the user's own save
+   * still lands on the document that survived.
+   *
+   * @param seam - the settings service.
+   * @param op - the single path op to apply.
+   */
+  async function applySettingsOp(seam: SettingsSeam, op: SettingsPathOp): Promise<void> {
     try {
       await seam.mutate(SEEWORK_SETTINGS_NAMESPACE, [op])
     } catch (error) {
       if (!(error instanceof SettingsConflictError)) throw error
       await seam.mutate(SEEWORK_SETTINGS_NAMESPACE, [op])
     }
+  }
+
+  /**
+   * Take the retired master switch out of a document that still carries it.
+   *
+   * `enabled` is no longer part of the schema, so nothing reads it — but leaving it
+   * in the file would keep claiming something that is not true (#5). One `unset`,
+   * once per boot, until it is gone.
+   *
+   * @param seam - the settings service.
+   */
+  async function retireEnableSwitch(seam: SettingsSeam): Promise<void> {
+    await applySettingsOp(seam, { op: 'unset', path: ['enabled'] })
   }
 
   // ---- announcement -----------------------------------------------------
@@ -288,7 +315,7 @@ export function apply(ctx: Context, config?: SettingsEntry, makeRefresher: Refre
       disposeSection = undefined
     }
     const value = resolve()
-    if (!value.enabled || !value.announceToAgent) return
+    if (!value.announceToAgent) return
     disposeSection = ctx.systemPrompt.section({
       name: 'plugin:dsh-seework',
       order: SECTION_ORDER,
@@ -313,6 +340,15 @@ export function apply(ctx: Context, config?: SettingsEntry, makeRefresher: Refre
         () => presentation.configure!({ auto: false }, ctx.fiber),
         'dsh-seework: settings presentation',
       )
+    }
+
+    // The plugin's own master switch is retired (#5). A document that still carries
+    // it loses it here, so the file stops claiming a switch nothing reads. A host
+    // that validates the document strictly may already have dropped the key on the
+    // way in, in which case there is simply nothing to take out.
+    const settings = sctx.get('settings') as unknown as SettingsSeam | undefined
+    if (settings !== undefined && hasRetiredEnableSwitch(read())) {
+      void retireEnableSwitch(settings)
     }
 
     sctx.effect(
@@ -364,34 +400,11 @@ export function apply(ctx: Context, config?: SettingsEntry, makeRefresher: Refre
   // registry must keep mounting the tools, routes, library and canvas. So this
   // is a deferred optional injection, deliberately NOT a fifth `inject` entry.
   //
-  // `enabled` governs the skill exactly as it governs the announcement: turning
-  // the plugin off must take the skill out of the host's catalog, not just stop
-  // the prompt section. `announceToAgent` deliberately does NOT: it saves
-  // prompt budget only, and the skill is loaded on demand (see ADR-0001).
-  let skillContext: Context | undefined
-  let disposeSkill: (() => void) | undefined
-
-  /** Register or unregister the skill so it follows the current `enabled`. */
-  const syncSkill = (): void => {
-    if (skillContext === undefined) return
-    if (!resolve().enabled) {
-      disposeSkill?.()
-      disposeSkill = undefined
-      return
-    }
-    disposeSkill ??= registerCapabilitiesSkill(skillContext)
-  }
-
+  // Registered for as long as the plugin is loaded, and deliberately independent
+  // of `announceToAgent`: that saves prompt budget only, and the skill is loaded
+  // on demand (see ADR-0001).
   ctx.inject(['skills'], (sctx) => {
-    skillContext = sctx
-    // The registration is plugin state (a settings commit can flip it), so the
-    // fiber owns only the teardown and `syncSkill` owns the registration.
-    sctx.effect(() => () => {
-      disposeSkill?.()
-      disposeSkill = undefined
-      skillContext = undefined
-    }, 'dsh-seework: capability skill')
-    syncSkill()
+    sctx.effect(() => registerCapabilitiesSkill(sctx), 'dsh-seework: capability skill')
   })
 
   // ---- agent tools ------------------------------------------------------

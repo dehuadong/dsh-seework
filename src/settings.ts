@@ -23,8 +23,6 @@ export const SeeWorkSettingsNamespace = SEEWORK_SETTINGS_NAMESPACE as SettingsNa
 
 /** Plugin config, validated by the same-named schemastery schema. */
 export interface Config {
-  /** Master switch for the agent tools and the routes they need. */
-  enabled?: boolean
   /** Whether agents may generate images through this plugin. */
   allowAgentGeneration?: boolean
   /** Announce the plugin, its models, and its limits in every agent's system prompt. */
@@ -78,7 +76,6 @@ export { DEFAULT_ASPECT_RATIO, DEFAULT_OUTPUT_FORMAT } from './protocol.ts'
  * runtime — the same schema this plugin shipped before the fork.
  */
 export const ConfigShape = z.object({
-  enabled: z.boolean().default(true),
   allowAgentGeneration: z.boolean().default(true),
   announceToAgent: z.boolean().default(true),
   apiUrl: z.string().default(DEFAULT_API_URL),
@@ -110,7 +107,6 @@ export const Config = ConfigShape.volatile()
 
 /** Resolved runtime view of the settings the host half acts on. */
 export interface EffectiveConfig {
-  enabled: boolean
   allowAgentGeneration: boolean
   announceToAgent: boolean
   apiUrl: string
@@ -193,6 +189,20 @@ export function installSettingsSection(
 }
 
 /**
+ * Whether a stored document still carries the retired plugin master switch.
+ *
+ * Read from the document rather than from {@link effectiveConfig}: the key is no
+ * longer part of the schema, so the resolved view could never report it — and it is
+ * the resolved view's silence that has to be turned into a cleanup (#5).
+ *
+ * @param document - the raw settings document.
+ * @returns true when `enabled` is still there.
+ */
+export function hasRetiredEnableSwitch(document: unknown): boolean {
+  return document !== null && typeof document === 'object' && 'enabled' in document
+}
+
+/**
  * Apply schema defaults and normalize a raw config into the runtime view.
  *
  * Keys an older plugin version wrote and this one no longer stores are
@@ -206,6 +216,13 @@ export function installSettingsSection(
  * `capability.ts::hasRetiredModelKeys` reports a raw document that still carries
  * them (the dep it is handed is `hasRetiredKeys`).
  *
+ * `enabled` is retired the same way (#5): the plugin's own master switch
+ * duplicated the host's plugin enable/disable, which is the switch a user
+ * actually reaches for, and it meant the same thing as
+ * {@link EffectiveConfig.allowAgentGeneration} for everything the agent could do.
+ * A document that still carries `enabled: false` keeps working — the key is simply
+ * ignored, and the plugin is as enabled as the host says it is.
+ *
  * The per-model shape itself is `capability.ts`'s business (#669): this module
  * owns the document — the connection, the generation defaults, the data root —
  * and hands the model list to {@link normalizeModels}.
@@ -215,7 +232,6 @@ export function effectiveConfig(value: Config | undefined): EffectiveConfig {
   const models = normalizeModels(source.models)
   const requestedDefault = typeof source.defaultModel === 'string' ? source.defaultModel.trim() : ''
   return {
-    enabled: source.enabled ?? true,
     allowAgentGeneration: source.allowAgentGeneration ?? true,
     announceToAgent: source.announceToAgent ?? true,
     apiUrl: typeof source.apiUrl === 'string' && source.apiUrl.trim() !== '' ? source.apiUrl.trim() : DEFAULT_API_URL,

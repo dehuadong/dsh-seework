@@ -437,15 +437,13 @@ export function SeeWorkSettingsCard({ scope, api }: SettingsCardFace): JSX.Eleme
         </div>
         <p className={css.hint}>
           {picker === undefined || picker.kind === 'native'
-            ? '对话里生成的图片、画布上的合成图都存在这里；换目录只是换个地方读写，旧目录里的文件不会被删。'
+            ? '对话里生成的图片、画布上的合成图都存在这里；换目录会把旧目录里的文件搬过去。'
             : picker.message}
         </p>
+        {/* These take effect as they are changed — there is nothing to save here,
+            and a save button in this section would be saving the connection. */}
+        <p className={css.hint}>这一节的开关改完立即生效。</p>
         <BehaviorSwitches config={config} onWrite={write} />
-        <div className={css.row}>
-          <Button variant="primary" disabled={busy} onClick={() => { void saveConnection() }}>
-            保存
-          </Button>
-        </div>
       </section>
 
       <section className={css.section}>
@@ -652,11 +650,6 @@ function BehaviorSwitches({
 }): JSX.Element {
   return (
     <div className={css.switches}>
-      <Toggle
-        checked={config?.enabled ?? true}
-        label="启用插件"
-        onChange={next => { onWrite('enabled', next) }}
-      />
       <Toggle
         checked={config?.allowAgentGeneration ?? true}
         label="允许 Agent 生图"

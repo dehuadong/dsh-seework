@@ -14,7 +14,6 @@ import { SETTINGS_API, type ModelConfig } from '../protocol.ts'
 
 /** The fields this plugin's settings card edits. */
 export interface SeeWorkConfig {
-  enabled?: boolean
   allowAgentGeneration?: boolean
   announceToAgent?: boolean
   apiUrl?: string

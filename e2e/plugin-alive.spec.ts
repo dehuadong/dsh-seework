@@ -63,3 +63,22 @@ test('设置里出现 SeeWork 这一页，且卡片内容渲染出来', async ({
   await expect(dialog.locator(SELECTORS.version)).not.toBeEmpty()
   await expect(dialog.locator(SELECTORS.dataDir)).toBeVisible()
 })
+
+test('「本地与行为」只剩两个开关，且这一节没有保存按钮', async ({ app }) => {
+  await openSettings(app)
+  const dialog = app.getByRole('dialog', { name: '设置' })
+  await dialog.getByRole('navigation').getByRole('button', { name: 'SeeWork', exact: true }).click()
+
+  // The plugin's own master switch is retired: the host's plugin enable/disable is
+  // the switch a user reaches for, and for the agent it meant the same thing as the
+  // switch below it (#5).
+  await expect(dialog.getByLabel('启用插件')).toHaveCount(0)
+  await expect(dialog.getByLabel('允许 Agent 生图')).toBeVisible()
+  await expect(dialog.getByLabel('把插件与模型告知 Agent')).toBeVisible()
+
+  // These take effect as they are changed, so the section offers nothing to save —
+  // the one save button belongs to the connection, which is staged because its API
+  // key is a secret the wire never returns.
+  await expect(dialog.getByRole('button', { name: '保存', exact: true })).toHaveCount(0)
+  await expect(dialog.getByRole('button', { name: '保存连接', exact: true })).toBeVisible()
+})

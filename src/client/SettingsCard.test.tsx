@@ -243,10 +243,13 @@ describe('SeeWorkSettingsCard', () => {
     expect(container.querySelector('[data-dsh-seework-reset-dir]')).toBeNull()
   })
 
-  it('keeps the three behaviour switches and offers no watermark one', async () => {
+  it('keeps the two behaviour switches, no plugin switch, and no watermark one', async () => {
     await render()
     const labels = [...container.querySelectorAll('label')].map(label => label.textContent ?? '')
-    expect(labels.some(text => text.includes('启用插件'))).toBe(true)
+    // The plugin's own master switch is retired (#5): the host's plugin
+    // enable/disable is the switch a user reaches for, and for the agent it meant
+    // the same thing as the switch below it.
+    expect(labels.some(text => text.includes('启用插件'))).toBe(false)
     expect(labels.some(text => text.includes('允许 Agent 生图'))).toBe(true)
     expect(labels.some(text => text.includes('把插件与模型告知 Agent'))).toBe(true)
     expect(container.textContent).not.toContain('水印')
@@ -314,18 +317,28 @@ describe('SeeWorkSettingsCard', () => {
 
   it('saves the connection without inventing a data-directory write', async () => {
     const fake = await render({ dataDir: '/custom/root' })
-    const save = [...container.querySelectorAll('button')].find(button => button.textContent === '保存')!
+    // The only save button is the connection's, and it sits in the connection
+    // section: the behaviour switches write as they are changed.
+    const save = [...container.querySelectorAll('button')].find(button => button.textContent === '保存连接')!
     await act(async () => { save.click(); await Promise.resolve() })
     // Nothing to write (the addresses are unchanged), and definitely not dataDir.
     expect(fake.ops).toEqual([])
     expect(container.textContent).toContain('没有需要保存的改动')
   })
 
+  it('offers no save button in the behaviour section', async () => {
+    await render()
+    // A save button there would be saving the connection section, which is what
+    // made it read as "what does this save?" (#5).
+    const buttons = [...container.querySelectorAll('button')].map(button => button.textContent)
+    expect(buttons.filter(text => text === '保存')).toEqual([])
+  })
+
   it('still writes a switch through the scope', async () => {
     const fake = await render()
     const toggle = container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')[0]!
     await act(async () => { toggle.click(); await Promise.resolve() })
-    expect(fake.writes()).toContain('enabled')
+    expect(fake.writes()).toContain('allowAgentGeneration')
   })
 
   /** One catalog candidate as discovery reports it. */

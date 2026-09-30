@@ -177,9 +177,6 @@ const NOT_CONFIGURED = '还没有配置 SeeAI Hub：请打开「设置 → 插�
 
 /** Throw the actionable failure for a not-yet-usable configuration. */
 export function ensureConfigured(config: EffectiveConfig, options: { useAgent?: boolean } = {}): void {
-  if (!config.enabled) {
-    throw new SeeWorkError('SeeWork 插件已停用，请先在设置里启用。', 'plugin-disabled')
-  }
   if (options.useAgent === true && !config.allowAgentGeneration) {
     throw new SeeWorkError('Agent 生图已在设置里关闭。', 'agent-generation-disabled')
   }

@@ -384,8 +384,8 @@ describe('the real skill registry', () => {
   })
 
   it('disappears from the catalog when its registration is disposed', async () => {
-    // How the plugin implements the `enabled=false` switch: the disposer the
-    // registry hands back removes the skill from the model-facing catalog.
+    // What the plugin relies on for teardown: the disposer the registry hands back
+    // removes the skill from the model-facing catalog.
     const { registry, dispose } = registered()
     expect(await registry.list()).toHaveLength(1)
     dispose()

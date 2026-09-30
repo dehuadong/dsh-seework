@@ -471,7 +471,6 @@ export function makeRoutes(deps: SeeWorkRoutesDeps): WebRoute[] {
       const request = parseGenerateRequest(body)
       if (request === undefined) return fail(res, 400, 'invalid_request', '缺少必填的 model 或 prompt。')
       const config = effectiveConfig(deps.resolve())
-      if (!config.enabled) return fail(res, 400, 'plugin-disabled', '插件已停用，请先在设置里启用。')
       let task
       try {
         task = deps.runtime.submit(request, 'panel')
