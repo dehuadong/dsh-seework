@@ -6,19 +6,18 @@
  *
  * What matters here is not the styling but the wiring, because both halves are
  * invisible until a real click happens in a real shell:
- *  - the buttons land in the shell's utilities slot (or the plugin stays
- *    reachable through its floating dock instead);
- *  - pressing one asks the matching surface to open, through the same
- *    activation event its own launcher uses, so there is exactly one way in;
+ *  - the buttons land in the shell's utilities slot;
+ *  - pressing one asks the column to open or close the matching page, so there
+ *    is exactly one way in;
  *  - the pressed button reports itself active while that surface is up.
  */
 
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { HeaderLaunchers, onHeaderPresence, reportSurfaceOpen } from './header-launchers.tsx'
+import { HeaderLaunchers, setLauncherControls } from './header-launchers.tsx'
 import { apply } from './index.ts'
-import { ACTIVATE_EVENT } from './settings-panel.tsx'
+import { ACTIVATE_EVENT } from './activation.ts'
 
 let container: HTMLDivElement
 let root: Root
@@ -61,14 +60,20 @@ describe('HeaderLaunchers', () => {
     expect(buttons.map(button => button.dataset.surface)).toEqual(['library', 'canvas'])
   })
 
-  it('asks the matching surface to open, through the shared activation event', () => {
-    const seen = recordActivations()
+  it('asks the matching surface to open, through the controls', () => {
+    const opened: string[] = []
+    const stop = setLauncherControls({
+      isOpen: () => false,
+      open: surface => { opened.push(surface); return true },
+      close: () => true,
+    })
     act(() => {
       root.render(<HeaderLaunchers />)
     })
     const canvas = container.querySelector<HTMLButtonElement>('button[data-surface="canvas"]')!
     act(() => { canvas.click() })
-    expect(seen).toEqual(['canvas'])
+    expect(opened).toEqual(['canvas'])
+    stop()
   })
 
   it('marks the button whose surface is up', () => {
@@ -89,37 +94,27 @@ describe('HeaderLaunchers', () => {
     expect(container.querySelector<HTMLButtonElement>('button[data-surface="canvas"]')!.dataset.active).toBe('true')
   })
 
-  it('reports its own presence, which is what retires the floating dock', () => {
-    // The conversation header only exists inside a session, so its buttons come
-    // and go. The floating launchers are hidden exactly while these are up —
-    // the component's own lifetime is the truthful signal.
-    const seen: boolean[] = []
-    const stop = onHeaderPresence(present => { seen.push(present) })
-    expect(seen).toEqual([false])
-    act(() => {
-      root.render(<HeaderLaunchers />)
-    })
-    expect(seen).toEqual([false, true])
-    act(() => { root.unmount() })
-    expect(seen).toEqual([false, true, false])
-    stop()
-    // Leave the shared module state as this test found it.
-    act(() => { root = createRoot(container) })
-  })
-
   it('presses the surface away when it is already showing', () => {
     const seen = recordActivations()
+    const opened: string[] = []
+    const closed: string[] = []
+    const stop = setLauncherControls({
+      isOpen: surface => surface === 'library',
+      open: surface => { opened.push(surface); return true },
+      close: surface => { closed.push(surface); return true },
+    })
     act(() => {
       root.render(<HeaderLaunchers />)
     })
     const library = container.querySelector<HTMLButtonElement>('button[data-surface="library"]')!
-    const stop = reportSurfaceOpen('library', () => true)
     act(() => { library.click() })
-    // Announcing a neighbour retires the library under the single-open rule.
-    expect(seen).toEqual(['canvas'])
+    expect(closed).toEqual(['library'])
+    expect(opened).toEqual([])
     stop()
+    // Without controls there is no column to act on, so a press does nothing —
+    // and in particular does not announce a surface nobody can open.
     act(() => { library.click() })
-    expect(seen).toEqual(['canvas', 'library'])
+    expect(seen).toEqual([])
   })
 })
 

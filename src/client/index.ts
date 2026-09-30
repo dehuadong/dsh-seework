@@ -18,14 +18,13 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import { SeeWorkApi } from './api.ts'
 import { SeeWorkSettingsCard, type SettingsCardFace } from './SettingsCard.tsx'
-import { mountCanvasSurfaces, stageSizeFor } from './canvas-panel.tsx'
+import { CanvasBoard, stageSizeFor } from './CanvasBoard.tsx'
 import { CanvasStore } from './canvas-store.ts'
 import { watchGenerations } from './generation-watch.ts'
-import { HeaderLaunchers, onHeaderPresence, setLauncherControls, type LauncherControls } from './header-launchers.tsx'
+import { HeaderLaunchers, setLauncherControls, type LauncherControls } from './header-launchers.tsx'
 import { LibraryStore } from './library-store.ts'
-import { mountLibraryPanel } from './library-panel.tsx'
 import { bindSeeWorkScope, type SeeWorkScope } from './settings-scope.ts'
-import { mountSettingsPanel, requestSurface } from './settings-panel.tsx'
+import { mountSettingsPanel } from './settings-panel.tsx'
 import { installChatImageZoom } from './chat-images.tsx'
 import { UpdateNotice } from './UpdateNotice.tsx'
 import { createCanvasAddFace, libraryFileFromUrl, setCanvasAddFace } from './canvas-add.ts'
@@ -126,35 +125,17 @@ export function apply(ctx: ClientContext): void {
   // two stores would mean two boards fighting over one document.
   const canvas = new CanvasStore(api)
 
-  // The library store is shared: the drawer and the library tab show it, the
-  // canvas picks pictures from it, and two stores would mean one of them showing
-  // a stale list.
+  // The library store is shared: the library tab shows it and the canvas picks
+  // pictures from it — two stores would mean one of them showing a stale list.
   const library = new LibraryStore(api)
-  // The floating launchers mount first: the right column's services only exist
-  // once its own plugin has applied, which the boot graph may order after this
-  // one. When the tabs do land, the launchers retire themselves.
-  const disposeLibrary = mountLibrary(api, library)
-  const disposeCanvas = mountCanvas(api, library, canvas)
-  // The two ways the floating launchers stand down, in one place: the
-  // conversation header showing its own buttons, or the right column taking
-  // these surfaces as pages (the guide page's capsules — see `sidebar-tabs.ts`).
-  // While neither holds they are the only way in, which is what keeps a shell
-  // without the header slot or without the column usable.
-  let headerButtonsPresent = false
-  let columnTakesSeeWork = false
-  const syncFloatingLaunchers = (): void => { setFloatingLaunchersHidden(headerButtonsPresent || columnTakesSeeWork) }
-  const stopPresence = onHeaderPresence(present => {
-    headerButtonsPresent = present
-    syncFloatingLaunchers()
-  })
+  // Both surfaces are pages in the shell's right column. The tab types are
+  // declared as soon as the column's services exist; the column's plugin may
+  // apply after this one, so the watch retries on an interval.
   const attachTabs = registerSidebarTabsWhenReady(ctx, {
     library,
     canvas,
     entries: () => library.getSnapshot().entries,
     onNeedLibrary: () => { void library.refresh() },
-  }, () => {
-    columnTakesSeeWork = true
-    syncFloatingLaunchers()
   })
   // Top-right entry points. The floating dock stays even when the header slot
   // accepts them: an external plugin must remain reachable on a shell that does
@@ -183,10 +164,9 @@ export function apply(ctx: ClientContext): void {
   const restoreCanvasAdd = setCanvasAddFace(createCanvasAddFace({
     library,
     canvas,
-    reveal: () => {
-      if (openSeeWorkTab(ctx, CANVAS_TAB_KIND)) return
-      requestSurface('canvas')
-    },
+    // One way in, like every other entry: the column's canvas page. Without a
+    // usable column this asks for nothing rather than opening a second shape.
+    reveal: () => { openSeeWorkTab(ctx, CANVAS_TAB_KIND) },
     stageSize: () => stageSizeFor(canvas),
   }))
   // 「加入到对话框」 needs the shell's conversation service; the session identity
@@ -194,8 +174,7 @@ export function apply(ctx: ClientContext): void {
   // A probe, not a captured value: plugins attach in boot order, so resolving at
   // call time is the only thing that cannot come up empty by accident.
   const restoreComposer = setComposerProbe(() => probeService<ComposerDrafts>(ctx, 'conversation'))
-  // Point the header buttons at the right-sidebar tabs; without the column they
-  // keep working through the floating surfaces.
+  // Point the header buttons at the right-sidebar tabs.
   const restoreControls = setLauncherControls(launchers.controls)
   // The host pushes nothing, so the page asks what the newest entry is; a change
   // means a generation finished (an agent one included) and the shared library
@@ -206,7 +185,6 @@ export function apply(ctx: ClientContext): void {
 
   ctx.effect(() => () => {
     stopWatching()
-    stopPresence()
     restoreControls()
     launchers.dispose()
     disposeToolCards()
@@ -218,8 +196,6 @@ export function apply(ctx: ClientContext): void {
     disposeSection?.()
     disposeSlot?.()
     disposeFloatingSettings?.()
-    disposeLibrary?.()
-    disposeCanvas?.()
   }, 'dsh-seework: settings, library and canvas surfaces')
 }
 
@@ -245,45 +221,6 @@ function probeService<T>(ctx: ClientContext, name: string): T | undefined {
 }
 
 /**
- * Show or hide the floating library/canvas launchers.
- *
- * Hidden rather than removed: the conversation header's buttons come and go with
- * the session, so a launcher that stood down for the header has to come back
- * when the user leaves the session. For the same reason the launcher element is
- * handed back to the dock rather than taken off it — the setup effect above owns
- * that element and re-appends it.
- *
- * The dock itself is removed once it holds no visible launcher, so standing down
- * leaves nothing in the corner (an empty fixed box is still a box). The settings
- * launcher is left alone — its slot is the one a shell is most likely to lack.
- *
- * @param hidden - true while these surfaces are reachable another way: the
- *   conversation header's own buttons, or the right column taking them as pages.
- */
-function setFloatingLaunchersHidden(hidden: boolean): void {
-  if (typeof document === 'undefined') return
-  for (const attr of ['data-dsh-seework-library-launcher', 'data-dsh-seework-canvas-launcher']) {
-    document.querySelectorAll<HTMLElement>(`[${attr}]`).forEach(button => {
-      button.style.display = hidden ? 'none' : ''
-    })
-  }
-  if (hidden) dropEmptySurfaceDock()
-}
-
-/**
- * Remove the shared dock when every launcher in it is hidden.
- *
- * The settings fallback is the one button a shell may keep here forever, so the
- * dock is only dropped when nothing in it is left to draw.
- */
-function dropEmptySurfaceDock(): void {
-  const dock = document.querySelector<HTMLElement>('[data-dsh-seework-dock=""]')
-  if (dock === null) return
-  const drawn = [...dock.children].some(child => (child as HTMLElement).style.display !== 'none')
-  if (!drawn) dock.remove()
-}
-
-/**
  * Register the right-sidebar tabs as soon as the column's services exist.
  *
  * The services are optional (see the `inject` note), so this probes for them on
@@ -294,14 +231,11 @@ function dropEmptySurfaceDock(): void {
  *
  * @param ctx - client root context.
  * @param stores - the shared stores the tab bodies render from.
- * @param onAvailable - called once the tabs actually registered, i.e. once the
- *   right column is a way into these surfaces and the floating dock may retire.
  * @returns disposer cancelling the watch and unregistering what landed.
  */
 function registerSidebarTabsWhenReady(
   ctx: ClientContext,
   stores: TabStores,
-  onAvailable: () => void,
 ): { dispose: () => void } {
   let tabs: { dispose: () => void; tabsAvailable: boolean } | undefined
   let cancelled = false
@@ -314,7 +248,6 @@ function registerSidebarTabsWhenReady(
       const registered = registerSidebarTabs(ctx, stores)
       if (registered.tabsAvailable) {
         tabs = registered
-        onAvailable()
         return
       }
       // Services exist but the registry refused: retrying will not help.
@@ -354,19 +287,10 @@ function registerHeaderLaunchers(ctx: ClientContext): {
 } {
   const controls: LauncherControls = {
     isOpen: surface => isSeeWorkTabActive(ctx, surface === 'library' ? LIBRARY_TAB_KIND : CANVAS_TAB_KIND),
-    open: surface => {
-      const kind = surface === 'library' ? LIBRARY_TAB_KIND : CANVAS_TAB_KIND
-      if (openSeeWorkTab(ctx, kind)) return true
-      // No right column on this shell: fall back to the floating surface.
-      requestSurface(surface)
-      return false
-    },
-    close: surface => {
-      const kind = surface === 'library' ? LIBRARY_TAB_KIND : CANVAS_TAB_KIND
-      if (closeSeeWorkTab(ctx, kind)) return true
-      requestSurface(surface === 'library' ? 'canvas' : 'library')
-      return false
-    },
+    // One way in and one way out, both the column's own tab. There is no second
+    // shape to fall back to, so a shell without the column simply has no entry.
+    open: surface => openSeeWorkTab(ctx, surface === 'library' ? LIBRARY_TAB_KIND : CANVAS_TAB_KIND),
+    close: surface => closeSeeWorkTab(ctx, surface === 'library' ? LIBRARY_TAB_KIND : CANVAS_TAB_KIND),
   }
 
   try {
@@ -563,32 +487,6 @@ function mountFallback(scope: SeeWorkScope, api: SeeWorkApi): (() => void) | und
     return mountSettingsPanel(scope, api)
   } catch (error) {
     console.warn('[dsh-seework] settings panel mount failed:', error)
-    return undefined
-  }
-}
-
-/**
- * Mount the material-library launcher and drawer. A DOM mount failure degrades
- * the library only — the plugin never takes the GUI down with it.
- */
-function mountLibrary(api: SeeWorkApi, store: LibraryStore): (() => void) | undefined {
-  try {
-    return mountLibraryPanel(api, store)
-  } catch (error) {
-    console.warn('[dsh-seework] library panel mount failed:', error)
-    return undefined
-  }
-}
-
-/**
- * Mount the canvas launcher and overlay. Sharing the library store means the
- * picture picker shows what the drawer shows.
- */
-function mountCanvas(api: SeeWorkApi, store: LibraryStore, canvas: CanvasStore): (() => void) | undefined {
-  try {
-    return mountCanvasSurfaces(api, store, canvas)
-  } catch (error) {
-    console.warn('[dsh-seework] canvas mount failed:', error)
     return undefined
   }
 }

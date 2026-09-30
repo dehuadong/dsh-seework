@@ -1,8 +1,45 @@
 /**
  * Layout for the DOM-mounted settings launcher and its overlay.
- * The launcher is styled by surfaces.module.css (shared dock).
+ *
+ * The launcher carries its own container: the shared dock that used to hold this
+ * button existed for the floating library and canvas entries, and those are gone.
  * Colours use the shell's real tokens so the panel follows the theme.
  */
+
+/*
+ * Bottom-left, where the shell has nothing of its own: this is the one surface
+ * that still has to work on a shell with no slots at all.
+ */
+.host {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 60;
+}
+
+.launcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--dsw-alias-border-l2, currentColor);
+  border-radius: 999px;
+  background: var(--dsw-alias-button-elevated-fill, var(--dsw-alias-bg-layer-2, Canvas));
+  color: var(--dsw-alias-label-primary, inherit);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+  opacity: 0.75;
+  transition: opacity 120ms ease, background 120ms ease;
+}
+
+.launcher:hover,
+.launcher:focus-visible {
+  opacity: 1;
+  background: var(--dsw-alias-interactive-bg-hover, var(--dsw-alias-bg-layer-3, Canvas));
+}
 
 .overlay {
   position: fixed;
