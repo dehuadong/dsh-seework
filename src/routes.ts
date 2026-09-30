@@ -14,7 +14,9 @@
  * while the plugin is disabled — it is how the user turns it back on.
  */
 
+import { promises as fs } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import path from 'node:path'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { SettingsConflictError, type SettingsDescriptor, type SettingsPathOp } from '@deepseek-ai/dsh-settings'
@@ -250,6 +252,23 @@ async function serveLibraryImage(res: ServerResponse, file: string): Promise<voi
     'cache-control': 'private, max-age=31536000, immutable',
   })
   res.end(image.data)
+}
+
+/**
+ * Whether one path is a file that is really there.
+ *
+ * The stores answer "is this a name I would write"; this answers "did it land
+ * here", which is a different question the moment the material directory moves.
+ *
+ * @param target - absolute path to check.
+ * @returns true when a file exists there.
+ */
+async function fileExists(target: string): Promise<boolean> {
+  try {
+    return (await fs.stat(target)).isFile()
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -630,14 +649,27 @@ export function makeRoutes(deps: SeeWorkRoutesDeps): WebRoute[] {
       if (typeof body.file !== 'string' || source === undefined) {
         return fail(res, 400, 'invalid_body', '需要图片文件名与来源（library / canvas）。')
       }
+      // The data root follows the settings but is only refreshed when the config is
+      // resolved — and this route composes a path out of it, so resolve first.
+      // Otherwise a directory change would be answered from the previous directory.
+      deps.resolve()
       const target = imagePathFor(body.file, source)
       if (target === undefined) return fail(res, 400, 'invalid_body', '图片文件名不合法。')
+      // A name this store could have written is not the same as a file that is
+      // there: changing the material directory leaves the old files where they
+      // were, and a board written under the previous root still names them. Handing
+      // the file manager a path that is not there opens a folder with nothing
+      // selected, which reads as "it did not work" rather than as why.
+      if (!(await fileExists(target))) {
+        return fail(res, 404, 'image_not_found',
+          `这张图的文件不在当前素材目录（${path.dirname(target)}）里。换过素材目录后，旧目录里的文件不会自动搬过来。`)
+      }
       try {
         await (deps.reveal ?? revealInFileManager)(target)
         ok(res, { revealed: true })
       } catch (error) {
-        // The path exists as far as this store knows; a failure here is the
-        // desktop's (no file manager, or the command never answered).
+        // The file is there; a failure here is the desktop's (no file manager, or
+        // the command never answered).
         fail(res, 500, 'reveal_failed', `打开文件所在位置失败：${error instanceof Error ? error.message : String(error)}`)
       }
     }),

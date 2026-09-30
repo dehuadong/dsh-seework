@@ -931,6 +931,12 @@ describe('showing a picture in the file manager', () => {
 
   it('composes the path from the name, under the store that owns it', async () => {
     const file = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee-0.png'
+    // The route answers about a file that is really there, so put it there: "a name
+    // this store writes" and "a file that exists" are two different questions.
+    for (const dir of [path.join(dataRoot, 'images'), path.join(dataRoot, 'canvas', 'assets')]) {
+      await fs.mkdir(dir, { recursive: true })
+      await fs.writeFile(path.join(dir, file), Buffer.from([1, 2, 3]))
+    }
 
     const library = await post({ file, source: 'library' })
     expect(library.status).toBe(200)
@@ -940,6 +946,22 @@ describe('showing a picture in the file manager', () => {
     // The same name in the other store is a different file, in its own directory.
     expect((await post({ file, source: 'canvas' })).status).toBe(200)
     expect(desktop.asked[1]).toBe(path.join(dataRoot, 'canvas', 'assets', file))
+  })
+
+  it('refuses a name whose file is not in the current material directory', async () => {
+    // A name this store would write, with no file behind it — which is what a board
+    // written before the material directory moved looks like. Handing that path to
+    // the file manager would open a folder with nothing selected.
+    const response = await post({ file: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee-9.png', source: 'library' })
+    expect(response.status).toBe(404)
+    const payload = await response.json() as { ok: boolean; code: string; message: string }
+    expect(payload.ok).toBe(false)
+    expect(payload.code).toBe('image_not_found')
+    // The message names the directory it looked in, so "it did not work" becomes
+    // "the file is not in this directory".
+    expect(payload.message).toContain(path.join(dataRoot, 'images'))
+    // And the desktop was never asked to open anything.
+    expect(desktop.asked).toEqual([])
   })
 
   it('refuses anything it cannot turn into one of its own files', async () => {

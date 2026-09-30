@@ -311,7 +311,11 @@ export function apply(ctx: Context, config?: SettingsEntry, makeRefresher: Refre
     }
 
     sctx.effect(
-      () => mountRoutes(sctx, read, runtimeOf, refresherOf, () => probeUpdateHost(sctx)),
+      // The reader handed to the routes also lets the stores follow the settings:
+      // `resolve` is what applies `dataDir`, and a route that composes a path out
+      // of the data root (revealing a picture's file) must not be answered from
+      // the directory the settings used to name.
+      () => mountRoutes(sctx, () => { resolve(); return read() }, runtimeOf, refresherOf, () => probeUpdateHost(sctx)),
       'dsh-seework: routes',
     )
 
@@ -415,7 +419,9 @@ function probeUpdateHost(ctx: Context): UpdateHost | undefined {
  * Register the route family with the host web server.
  *
  * @param ctx - the context whose `settings` and `webServer` are attached.
- * @param read - reads the live settings entry.
+ * @param read - reads the live settings entry **and lets the stores follow it**
+ *   (the caller's `resolve` is what applies `dataDir`); a route that composes a
+ *   path out of the data root depends on that having happened.
  * @param runtimeOf - the shared generation queue (created on first use).
  * @param updateHostOf - the host's plugin manager, when it composes one (the
  *   two self-update routes answer "unavailable" otherwise).

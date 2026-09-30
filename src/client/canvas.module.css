@@ -472,13 +472,12 @@
 }
 
 /*
- * A picture's body is a drag handle as well as its title bar: the hand cursor is
- * what says so, and it closes while the drag is in progress.
+ * A picture's body is a drag handle as well as its title bar. The hand appears
+ * only while the button is held — hovering a picture keeps the ordinary arrow
+ * (user report: a hand on hover made the picture look like a link) — and it holds
+ * for the whole gesture, because `:active` stays on the pressed element until
+ * release even once the pointer has left it.
  */
-.cardBodyPicture {
-  cursor: grab;
-}
-
 .cardBodyPicture:active {
   cursor: grabbing;
 }
